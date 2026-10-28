@@ -23,7 +23,8 @@ import {
   DollarSign,
   FolderOpen,
   LogOut,
-  Lock
+  Lock,
+  Calculator
 } from 'lucide-react';
 
 export default function App() {
@@ -37,7 +38,19 @@ export default function App() {
 
   // --- STANJE I FUNKCIJE: MAGACIN ---
   const [magacin, setMagacin] = useState([]);
+  const [magacinPretraga, setMagacinPretraga] = useState('');
   const [noviArtikal, setNoviArtikal] = useState({ sifra: '', naziv: '', nabavnaCena: '', prodajnaCena: '', kolicina: '' });
+
+  const magacinFiltriran = magacin.filter(art => {
+    const term = magacinPretraga.toLowerCase();
+    return (
+      art.sifra.toString().toLowerCase().includes(term) ||
+      art.naziv.toLowerCase().includes(term) ||
+      art.nabavnaCena.toString().includes(term) ||
+      art.prodajnaCena.toString().includes(term) ||
+      art.kolicina.toString().includes(term)
+    );
+  });
 
   useEffect(() => {
     if (isLoggedIn) {
@@ -83,12 +96,32 @@ export default function App() {
     }
   };
 
+  // --- KALKULACIJA CENA PRETRAGA I STANJE ---
+  const [kalkulacijaPretraga, setKalkulacijaPretraga] = useState('');
+  const [izabraniArtikalKalkulacija, setIzabraniArtikalKalkulacija] = useState(null);
+  const [kalkulacijaOtkljucana, setKalkulacijaOtkljucana] = useState(false);
+  const [kalkulacijaUnesenaSifra, setKalkulacijaUnesenaSifra] = useState('');
+  const [kalkulacijaSifraGreska, setKalkulacijaSifraGreska] = useState('');
+
+  const proveriKalkulacijaSifru = (e) => {
+    e.preventDefault();
+    if (kalkulacijaUnesenaSifra === 'admin123') {
+      setKalkulacijaOtkljucana(true);
+      setKalkulacijaSifraGreska('');
+    } else {
+      setKalkulacijaSifraGreska('Pogrešna šifra za pristup kalkulaciji cena!');
+    }
+  };
+
   const dodajArtikal = async (e) => {
     e.preventDefault();
     if (!noviArtikal.naziv || !noviArtikal.prodajnaCena) return;
 
+    // Automatska šifra (1, 2, 3...)
+    const sledecaSifra = magacin.length > 0 ? Math.max(...magacin.map(item => Number(item.sifra) || 0)) + 1 : 1;
+
     const noviRed = {
-      sifra: noviArtikal.sifra || `ART-${Date.now().toString().slice(-4)}`,
+      sifra: sledecaSifra.toString(),
       naziv: noviArtikal.naziv,
       nabavna_cena: Number(noviArtikal.nabavnaCena) || 0,
       prodajna_cena: Number(noviArtikal.prodajnaCena) || 0,
@@ -110,6 +143,31 @@ export default function App() {
         kolicina: data[0].kolicina
       }]);
       setNoviArtikal({ sifra: '', naziv: '', nabavnaCena: '', prodajnaCena: '', kolicina: '' });
+    }
+  };
+
+  const sacuvajKalkulacijuIzmene = async (e) => {
+    e.preventDefault();
+    if (!izabraniArtikalKalkulacija) return;
+
+    const azuriraniMagacin = magacin.map(art => 
+      art.id === izabraniArtikalKalkulacija.id ? izabraniArtikalKalkulacija : art
+    );
+    setMagacin(azuriraniMagacin);
+
+    const { error } = await supabase.from('magacin').update({
+      nabavna_cena: izabraniArtikalKalkulacija.nabavnaCena,
+      prodajna_cena: izabraniArtikalKalkulacija.prodajnaCena,
+      kolicina: izabraniArtikalKalkulacija.kolicina
+    }).eq('id', izabraniArtikalKalkulacija.id);
+
+    if (error) {
+      console.error('Greška pri ažuriranju kalkulacije:', error);
+      alert('Greška pri čuvanju izmena u bazi!');
+    } else {
+      alert('Uspešno sačuvane izmene za artikal: ' + izabraniArtikalKalkulacija.naziv);
+      setIzabraniArtikalKalkulacija(null);
+      setKalkulacijaPretraga('');
     }
   };
 
@@ -155,6 +213,8 @@ export default function App() {
     modelVozila: '',
     brojSasije: '',
     registracija: '',
+    include_vat: true,
+    work_description: '',
     stavke: [],
     napomena: ''
   });
@@ -181,6 +241,8 @@ export default function App() {
         modelVozila: rn.model_vozila,
         brojSasije: rn.broj_sasije,
         registracija: rn.registracija,
+        include_vat: rn.include_vat !== false,
+        work_description: rn.work_description || '',
         stavke: rn.stavke || []
       })));
     }
@@ -256,6 +318,8 @@ export default function App() {
       model_vozila: trenutniNalog.modelVozila,
       broj_sasije: trenutniNalog.brojSasije,
       registracija: trenutniNalog.registracija,
+      include_vat: trenutniNalog.include_vat,
+      work_description: trenutniNalog.work_description,
       stavke: trenutniNalog.stavke
     };
 
@@ -276,6 +340,8 @@ export default function App() {
         modelVozila: '',
         brojSasije: '',
         registracija: '',
+        include_vat: true,
+        work_description: '',
         stavke: [],
         napomena: ''
       });
@@ -583,6 +649,13 @@ export default function App() {
               <span>Magacin</span>
             </button>
             <button 
+              onClick={() => setActiveTab('kalkulacija')}
+              className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'kalkulacija' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
+            >
+              <Calculator size={16} />
+              <span>Kalkulacija cena</span>
+            </button>
+            <button 
               onClick={() => setActiveTab('radni-nalog')}
               className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'radni-nalog' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
             >
@@ -637,56 +710,32 @@ export default function App() {
               </div>
             </div>
 
-            <div className="bg-slate-800 border border-slate-700 p-5 rounded-xl shadow-lg">
-              <h3 className="text-lg font-semibold mb-4 text-white">Dodaj novi artikal u magacin</h3>
-              <form onSubmit={dodajArtikal} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-                <input 
-                  type="text" 
-                  placeholder="Šifra (opciono)" 
-                  value={noviArtikal.sifra}
-                  onChange={e => setNoviArtikal({...noviArtikal, sifra: e.target.value})}
-                  className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-                />
-                <input 
-                  type="text" 
-                  placeholder="Naziv artikla *" 
-                  value={noviArtikal.naziv}
-                  onChange={e => setNoviArtikal({...noviArtikal, naziv: e.target.value})}
-                  className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-                />
-                <input 
-                  type="number" 
-                  placeholder="Nabavna cena (RSD) *" 
-                  value={noviArtikal.nabavnaCena}
-                  onChange={e => setNoviArtikal({...noviArtikal, nabavnaCena: e.target.value})}
-                  className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-                />
-                <input 
-                  type="number" 
-                  placeholder="Prodajna cena (RSD) *" 
-                  value={noviArtikal.prodajnaCena}
-                  onChange={e => setNoviArtikal({...noviArtikal, prodajnaCena: e.target.value})}
-                  className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-                />
-                <div className="flex space-x-2">
-                  <input 
-                    type="number" 
-                    placeholder="Količina" 
-                    value={noviArtikal.kolicina}
-                    onChange={e => setNoviArtikal({...noviArtikal, kolicina: e.target.value})}
-                    className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white w-full focus:outline-none focus:border-blue-500"
-                  />
-                  <button type="submit" className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-medium flex items-center justify-center transition">
-                    <Plus size={18} />
-                  </button>
-                </div>
-              </form>
-            </div>
+
 
             <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden shadow-lg">
-              <div className="px-6 py-4 border-b border-slate-700 flex justify-between items-center">
-                <h3 className="font-semibold text-white">Stanje na lageru</h3>
-                <span className="text-xs text-slate-400">Izmene se automatski čuvaju u bazi</span>
+              <div className="px-6 py-4 border-b border-slate-700 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <h3 className="font-semibold text-white">Stanje na lageru (Samo pregled)</h3>
+                  <p className="text-xs text-slate-400">Za izmene i kalkulaciju cena koristite modul "Kalkulacija cena"</p>
+                </div>
+                <div className="relative w-full md:w-72">
+                  <Search size={16} className="absolute left-3 top-2.5 text-slate-400" />
+                  <input 
+                    type="text"
+                    value={magacinPretraga}
+                    onChange={(e) => setMagacinPretraga(e.target.value)}
+                    placeholder="Pretraga po šifri, nazivu ili ceni..."
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
+                  />
+                  {magacinPretraga && (
+                    <button 
+                      onClick={() => setMagacinPretraga('')}
+                      className="absolute right-2.5 top-2 text-slate-400 hover:text-white"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
@@ -697,59 +746,27 @@ export default function App() {
                       <th className="py-3 px-4">Nabavna cena</th>
                       <th className="py-3 px-4">Prodajna cena</th>
                       <th className="py-3 px-4">Količina</th>
-                      <th className="py-3 px-4 text-right">Akcija</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-700 text-sm">
-                    {magacin.map(art => (
+                    {magacinFiltriran.map(art => (
                       <tr key={art.id} className="hover:bg-slate-750 transition">
-                        <td className="py-3 px-4">
-                          <input 
-                            type="text" 
-                            value={art.sifra} 
-                            onChange={(e) => izmeniArtikalPolje(art.id, 'sifra', e.target.value)}
-                            className="bg-transparent border-b border-transparent hover:border-slate-500 focus:border-blue-500 focus:outline-none w-24 text-white"
-                          />
-                        </td>
-                        <td className="py-3 px-4">
-                          <input 
-                            type="text" 
-                            value={art.naziv} 
-                            onChange={(e) => izmeniArtikalPolje(art.id, 'naziv', e.target.value)}
-                            className="bg-transparent border-b border-transparent hover:border-slate-500 focus:border-blue-500 focus:outline-none w-full text-white font-medium"
-                          />
-                        </td>
-                        <td className="py-3 px-4 text-slate-300">
-                          <input 
-                            type="number" 
-                            value={art.nabavnaCena} 
-                            onChange={(e) => izmeniArtikalPolje(art.id, 'nabavnaCena', e.target.value)}
-                            className="bg-transparent border-b border-transparent hover:border-slate-500 focus:border-blue-500 focus:outline-none w-24 text-white"
-                          /> RSD
-                        </td>
-                        <td className="py-3 px-4 text-blue-400 font-semibold">
-                          <input 
-                            type="number" 
-                            value={art.prodajnaCena} 
-                            onChange={(e) => izmeniArtikalPolje(art.id, 'prodajnaCena', e.target.value)}
-                            className="bg-transparent border-b border-transparent hover:border-slate-500 focus:border-blue-500 focus:outline-none w-24 text-blue-400 font-semibold"
-                          /> RSD
-                        </td>
-                        <td className="py-3 px-4">
-                          <input 
-                            type="number" 
-                            value={art.kolicina} 
-                            onChange={(e) => izmeniArtikalPolje(art.id, 'kolicina', e.target.value)}
-                            className={`bg-transparent border-b border-transparent hover:border-slate-500 focus:border-blue-500 focus:outline-none w-16 font-bold ${art.kolicina <= 2 ? 'text-red-400' : 'text-white'}`}
-                          />
-                        </td>
-                        <td className="py-3 px-4 text-right">
-                          <button onClick={() => obrisiArtikal(art.id)} className="text-red-400 hover:text-red-300 p-1 rounded transition">
-                            <Trash2 size={16} />
-                          </button>
+                        <td className="py-3 px-4 font-mono text-slate-400">{art.sifra}</td>
+                        <td className="py-3 px-4 font-medium text-white">{art.naziv}</td>
+                        <td className="py-3 px-4 text-slate-300">{art.nabavnaCena} RSD</td>
+                        <td className="py-3 px-4 text-blue-400 font-semibold">{art.prodajnaCena} RSD</td>
+                        <td className={`py-3 px-4 font-bold ${art.kolicina <= 2 ? 'text-red-400' : 'text-white'}`}>
+                          {art.kolicina}
                         </td>
                       </tr>
                     ))}
+                    {magacinFiltriran.length === 0 && (
+                      <tr>
+                        <td colSpan="5" className="text-center py-6 text-slate-400 text-sm">
+                          {magacinPretraga ? 'Nije pronađen nijedan artikal za uneti pojam pretrage.' : 'Magacin je prazan.'}
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -758,6 +775,199 @@ export default function App() {
         )}
 
         {/* 2. RADNI NALOG MODUL */}
+        
+        {/* MODUL KALKULACIJA CENA */}
+        {activeTab === 'kalkulacija' && (
+          <div className="space-y-6">
+            {!kalkulacijaOtkljucana ? (
+              <div className="bg-slate-800 border border-slate-700 p-8 rounded-2xl max-w-md mx-auto space-y-6 shadow-xl my-12">
+                <div className="text-center space-y-2">
+                  <div className="bg-blue-600/20 text-blue-400 border border-blue-500/30 w-12 h-12 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                    <Lock size={24} />
+                  </div>
+                  <h3 className="text-xl font-bold text-white">Zaštićen modul</h3>
+                  <p className="text-xs text-slate-400">Unesite šifru za pristup kalkulaciji cena i izmeni stanja</p>
+                </div>
+
+                {kalkulacijaSifraGreska && (
+                  <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-xs p-3 rounded-xl text-center">
+                    {kalkulacijaSifraGreska}
+                  </div>
+                )}
+
+                <form onSubmit={proveriKalkulacijaSifru} className="space-y-4">
+                  <div>
+                    <label className="text-xs font-semibold text-slate-300 block mb-1">Unesite šifru</label>
+                    <input 
+                      type="password"
+                      placeholder="••••••••"
+                      value={kalkulacijaUnesenaSifra}
+                      onChange={e => setKalkulacijaUnesenaSifra(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500"
+                      required
+                    />
+                  </div>
+                  <button 
+                    type="submit"
+                    className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-2.5 rounded-xl text-sm transition shadow-lg shadow-blue-600/25"
+                  >
+                    Otključaj modul
+                  </button>
+                </form>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {/* 1. KARTICA ZA PRETRAGU I IZMENU KALEKULACIJE CENA */}
+                <div className="bg-slate-800 border border-slate-700 p-6 rounded-xl shadow-lg space-y-4">
+                  <div className="flex justify-between items-center border-b border-slate-700 pb-4">
+                    <div>
+                      <h3 className="text-lg font-semibold text-white flex items-center space-x-2">
+                        <Calculator size={20} className="text-blue-400" />
+                        <span>Kalkulacija cena i izmena artikala</span>
+                      </h3>
+                      <p className="text-xs text-slate-400">Pretražite artikal po šifri ili nazivu da biste izmenili nabavnu cenu, prodajnu cenu ili količinu.</p>
+                    </div>
+                    <button 
+                      onClick={() => { setKalkulacijaOtkljucana(false); setKalkulacijaUnesenaSifra(''); }}
+                      className="text-xs bg-slate-900 border border-slate-700 text-slate-400 hover:text-white px-3 py-1.5 rounded-lg transition hover:bg-slate-950"
+                    >
+                      Zaključaj ponovo
+                    </button>
+                  </div>
+
+                  <div className="relative">
+                    <Search size={18} className="absolute left-3 top-3 text-slate-500" />
+                    <input 
+                      type="text"
+                      value={kalkulacijaPretraga}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setKalkulacijaPretraga(val);
+                        const pronadjeni = magacin.find(i => i.sifra.toLowerCase() === val.toLowerCase() || i.naziv.toLowerCase().includes(val.toLowerCase()));
+                        setIzabraniArtikalKalkulacija(pronadjeni || null);
+                      }}
+                      placeholder="Unesite šifru ili naziv artikla..."
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+
+                  {izabraniArtikalKalkulacija ? (
+                    <form onSubmit={sacuvajKalkulacijuIzmene} className="bg-slate-900 border border-blue-500/40 p-6 rounded-xl space-y-4 mt-4">
+                      <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+                        <div>
+                          <h4 className="font-bold text-white text-base">{izabraniArtikalKalkulacija.naziv}</h4>
+                          <p className="text-xs text-blue-400 font-mono">Šifra: {izabraniArtikalKalkulacija.sifra}</p>
+                        </div>
+                        <span className="text-xs bg-blue-500/10 text-blue-400 px-3 py-1 rounded-full border border-blue-500/20">Modul Kalkulacija</span>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                          <label className="text-xs font-semibold text-slate-300 block mb-1">Nabavna cena (RSD)</label>
+                          <input 
+                            type="number"
+                            value={izabraniArtikalKalkulacija.nabavnaCena}
+                            onChange={(e) => setIzabraniArtikalKalkulacija({...izabraniArtikalKalkulacija, nabavnaCena: Number(e.target.value)})}
+                            className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-blue-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-semibold text-slate-300 block mb-1">Prodajna cena (RSD)</label>
+                          <input 
+                            type="number"
+                            value={izabraniArtikalKalkulacija.prodajnaCena}
+                            onChange={(e) => setIzabraniArtikalKalkulacija({...izabraniArtikalKalkulacija, prodajnaCena: Number(e.target.value)})}
+                            className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-blue-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-semibold text-slate-300 block mb-1">Količina</label>
+                          <input 
+                            type="number"
+                            value={izabraniArtikalKalkulacija.kolicina}
+                            onChange={(e) => setIzabraniArtikalKalkulacija({...izabraniArtikalKalkulacija, kolicina: Number(e.target.value)})}
+                            className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-blue-500"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end pt-2">
+                        <button type="submit" className="bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 rounded-xl text-sm font-semibold flex items-center space-x-2 transition shadow-lg shadow-emerald-600/20">
+                          <Save size={16} />
+                          <span>Sačuvaj izmene</span>
+                        </button>
+                      </div>
+                    </form>
+                  ) : kalkulacijaPretraga ? (
+                    <p className="text-xs text-amber-400">Nije pronađen artikal sa unetom šifrom ili nazivom.</p>
+                  ) : null}
+                </div>
+
+                {/* 2. ZASEBNA KARTICA ZA DODAVANJE NOVOG ARTIKLA */}
+                <div className="bg-slate-800 border border-slate-700 p-6 rounded-xl shadow-lg space-y-4">
+                  <div className="border-b border-slate-700 pb-3">
+                    <h4 className="text-base font-semibold text-white flex items-center space-x-2">
+                      <Plus size={18} className="text-blue-400" />
+                      <span>Dodaj novi artikal u magacin</span>
+                    </h4>
+                    <p className="text-xs text-slate-400 mt-1">Šifra artikla se sama automatski dodeljuje redom (1, 2, 3...)</p>
+                  </div>
+                  <form onSubmit={dodajArtikal} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-1">
+                    <div>
+                      <label className="text-xs font-semibold text-slate-300 block mb-1">Naziv artikla *</label>
+                      <input 
+                        type="text" 
+                        placeholder="Npr. Filter ulja Golf 7" 
+                        value={noviArtikal.naziv}
+                        onChange={e => setNoviArtikal({...noviArtikal, naziv: e.target.value})}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-slate-300 block mb-1">Nabavna cena (RSD) *</label>
+                      <input 
+                        type="number" 
+                        placeholder="0" 
+                        value={noviArtikal.nabavnaCena}
+                        onChange={e => setNoviArtikal({...noviArtikal, nabavnaCena: e.target.value})}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-slate-300 block mb-1">Prodajna cena (RSD) *</label>
+                      <input 
+                        type="number" 
+                        placeholder="0" 
+                        value={noviArtikal.prodajnaCena}
+                        onChange={e => setNoviArtikal({...noviArtikal, prodajnaCena: e.target.value})}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-slate-300 block mb-1">Količina na stanju</label>
+                      <div className="flex space-x-2">
+                        <input 
+                          type="number" 
+                          placeholder="0" 
+                          value={noviArtikal.kolicina}
+                          onChange={e => setNoviArtikal({...noviArtikal, kolicina: e.target.value})}
+                          className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500"
+                        />
+                        <button type="submit" className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-2.5 rounded-xl font-medium flex items-center justify-center transition shadow-md shrink-0" title="Sačuvaj novi artikal">
+                          <Plus size={18} />
+                        </button>
+                      </div>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {activeTab === 'radni-nalog' && (
           <div className="space-y-6">
             <div className="flex justify-between items-center bg-slate-800 p-4 rounded-xl border border-slate-700">
@@ -882,6 +1092,29 @@ export default function App() {
                         className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
                       />
                     </div>
+
+                    <div>
+                      <label className="text-xs text-slate-400 block mb-1">Opis radova na vozilu</label>
+                      <textarea 
+                        rows={3}
+                        value={trenutniNalog.work_description || ''}
+                        onChange={e => setTrenutniNalog({...trenutniNalog, work_description: e.target.value})}
+                        placeholder="Unesite opis obavljenih radova i servisa..."
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 resize-none"
+                      />
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-700/80">
+                      <label className="flex items-center space-x-2.5 cursor-pointer">
+                        <input 
+                          type="checkbox"
+                          checked={trenutniNalog.include_vat !== false}
+                          onChange={e => setTrenutniNalog({...trenutniNalog, include_vat: e.target.checked})}
+                          className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 bg-slate-900 border-slate-700"
+                        />
+                        <span className="text-xs font-semibold text-slate-200">Obračunaj PDV (+20% na cenu)</span>
+                      </label>
+                    </div>
                   </div>
 
                   <div className="lg:col-span-2 space-y-6">
@@ -1005,17 +1238,30 @@ export default function App() {
                         </table>
                       </div>
 
-                      {trenutniNalog.stavke.length > 0 && (
-                        <div className="flex justify-between items-center pt-4 border-t border-slate-700">
-                          <div className="text-lg font-bold text-white">
-                            Ukupno za uplatu: <span className="text-emerald-400">{trenutniNalog.stavke.reduce((acc, curr) => acc + (curr.cena * curr.kolicina), 0).toLocaleString()} RSD</span>
+                      {trenutniNalog.stavke.length > 0 && (() => {
+                        const osnovnaCena = trenutniNalog.stavke.reduce((acc, curr) => acc + (curr.cena * curr.kolicina), 0);
+                        const pdvIznos = trenutniNalog.include_vat !== false ? osnovnaCena * 0.20 : 0;
+                        const ukupnoZaUplatu = osnovnaCena + pdvIznos;
+
+                        return (
+                          <div className="flex justify-between items-center pt-4 border-t border-slate-700">
+                            <div className="space-y-0.5">
+                              <p className="text-xs text-slate-400">
+                                Osnovica: <span className="text-slate-200 font-semibold">{osnovnaCena.toLocaleString()} RSD</span>
+                                {trenutniNalog.include_vat !== false && <span> | PDV (20%): <span className="text-slate-200 font-semibold">{pdvIznos.toLocaleString()} RSD</span></span>}
+                              </p>
+                              <div className="text-lg font-bold text-white">
+                                Ukupno za uplatu: <span className="text-emerald-400">{ukupnoZaUplatu.toLocaleString()} RSD</span>
+                                {trenutniNalog.include_vat === false && <span className="text-xs font-normal text-slate-400 ml-2">(Bez PDV-a)</span>}
+                              </div>
+                            </div>
+                            <button onClick={sacuvajRadniNalog} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2.5 rounded-lg font-semibold flex items-center space-x-2 transition shadow">
+                              <Save size={16} />
+                              <span>Sačuvaj radni nalog u bazu</span>
+                            </button>
                           </div>
-                          <button onClick={sacuvajRadniNalog} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2.5 rounded-lg font-semibold flex items-center space-x-2 transition shadow">
-                            <Save size={16} />
-                            <span>Sačuvaj radni nalog u bazu</span>
-                          </button>
-                        </div>
-                      )}
+                        );
+                      })()}
                     </div>
                   </div>
                 </div>
@@ -1043,7 +1289,8 @@ export default function App() {
                     </thead>
                     <tbody className="divide-y divide-slate-700">
                       {radniNalozi.map(rn => {
-                        const ukupnoCena = (rn.stavke || []).reduce((acc, curr) => acc + (curr.cena * curr.kolicina), 0);
+                        const osnovnaCena = (rn.stavke || []).reduce((acc, curr) => acc + (curr.cena * curr.kolicina), 0);
+                        const ukupnoCena = rn.include_vat !== false ? osnovnaCena * 1.20 : osnovnaCena;
                         return (
                           <tr key={rn.id} className="hover:bg-slate-750 transition">
                             <td className="py-3 px-4 font-bold text-blue-400">{rn.broj}</td>
@@ -1606,97 +1853,139 @@ export default function App() {
         )}
       </main>
 
-      {/* MODAL ZA ŠTAMPU RADNOG NALOGA */}
-      {aktivniNalogZaStampu && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <div className="bg-white text-slate-900 p-8 rounded-2xl max-w-2xl w-full space-y-6 shadow-2xl relative max-h-[90vh] overflow-y-auto">
-            
-            <div className="flex justify-between items-center border-b pb-4 print:hidden">
-              <h4 className="font-bold text-lg text-slate-800">Pregled radnog naloga</h4>
-              <div className="flex space-x-2">
-                <button 
-                  onClick={() => window.print()}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center space-x-2"
-                >
-                  <Printer size={16} />
-                  <span>Štampaj / Sačuvaj PDF</span>
-                </button>
-                <button onClick={() => setAktivniNalogZaStampu(null)} className="text-slate-500 hover:text-slate-800 p-2">
-                  <X size={20} />
-                </button>
-              </div>
-            </div>
+            {/* MODAL ZA ŠTAMPU RADNOG NALOGA */}
+      {aktivniNalogZaStampu && (() => {
+        const imaPdv = aktivniNalogZaStampu.include_vat !== false;
+        const osnova = (aktivniNalogZaStampu.stavke || []).reduce((acc, curr) => acc + (curr.cena * curr.kolicina), 0);
+        const pdvIznos = imaPdv ? osnova * 0.20 : 0;
+        const ukupnoZaUplatu = osnova + pdvIznos;
 
-            <div className="space-y-6 p-2">
-              <div className="flex justify-between items-start border-b pb-6">
-                <div>
-                  <h2 className="text-2xl font-black tracking-tight text-blue-900">NB AUTO SERVIS</h2>
-                  <p className="text-xs text-slate-600 mt-1">Sremčica, Beograd | Tel: 06x/xxx-xxx</p>
-                  <p className="text-xs text-slate-600">Profesionalni auto servis i dijagnostika</p>
+        return (
+          <div className="fixed inset-0 bg-black/85 flex items-center justify-center z-50 p-2 sm:p-6 overflow-y-auto print:p-0 print:bg-white">
+            <div className="bg-white text-slate-900 rounded-2xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl relative print:shadow-none print:max-w-none print:w-full print:h-auto print:max-h-none overflow-hidden">
+              
+              {/* STICKY HEADER SA DUGMIĆIMA - UVEK VIDLJIV NA VRHU */}
+              <div className="sticky top-0 bg-slate-900 text-white p-4 px-6 flex justify-between items-center z-10 print:hidden border-b border-slate-800">
+                <div className="flex items-center space-x-3">
+                  <Printer className="text-blue-400" size={20} />
+                  <h4 className="font-bold text-base text-white">Pregled radnog naloga</h4>
                 </div>
-                <div className="text-right">
-                  <h3 className="text-xl font-bold text-slate-800">RADNI NALOG</h3>
-                  <p className="text-sm font-semibold text-blue-700 mt-1">{aktivniNalogZaStampu.broj}</p>
-                  <p className="text-xs text-slate-500 mt-0.5">Datum: {aktivniNalogZaStampu.datum}</p>
+                <div className="flex items-center space-x-3">
+                  <button 
+                    onClick={() => window.print()}
+                    className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-2 rounded-xl text-sm font-semibold flex items-center space-x-2 transition shadow-lg shadow-blue-600/30"
+                  >
+                    <Printer size={16} />
+                    <span>Štampaj / Sačuvaj PDF</span>
+                  </button>
+                  <button 
+                    onClick={() => setAktivniNalogZaStampu(null)} 
+                    className="bg-slate-800 hover:bg-red-600/20 hover:text-red-400 text-slate-400 p-2 rounded-xl border border-slate-700 transition"
+                    title="Zatvori (Esc)"
+                  >
+                    <X size={20} />
+                  </button>
                 </div>
               </div>
 
-              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-sm space-y-1.5">
-                <p className="font-bold text-slate-800 mb-2">Podaci o klijentu i vozilu:</p>
-                <p><span className="font-semibold">Ime i prezime:</span> {aktivniNalogZaStampu.ime} {aktivniNalogZaStampu.prezime}</p>
-                <p><span className="font-semibold">Kontakt telefon:</span> {aktivniNalogZaStampu.telefon || '/'}</p>
-                <p><span className="font-semibold">Model vozila:</span> {aktivniNalogZaStampu.modelVozila || '/'}</p>
-                <p><span className="font-semibold">Registarska oznaka:</span> {aktivniNalogZaStampu.registracija || '/'}</p>
-                <p><span className="font-semibold">Broj šasije (VIN):</span> {aktivniNalogZaStampu.brojSasije || '/'}</p>
-              </div>
+              {/* SADRŽAJ RADNOG NALOGA (SKROLABILAN) */}
+              <div className="p-8 sm:p-10 overflow-y-auto flex-1 space-y-6 bg-white">
+                <div className="flex justify-between items-start border-b-2 border-blue-900 pb-6">
+                  <div>
+                    <h2 className="text-3xl font-black tracking-tight text-blue-900">NB AUTO SERVIS</h2>
+                    <p className="text-xs text-slate-600 mt-1">Sremčica, Beograd | Tel: +381 60 0716698</p>
+                    <p className="text-xs text-slate-600">Profesionalni auto servis i dijagnostika</p>
+                  </div>
+                  <div className="text-right">
+                    <h3 className="text-2xl font-bold text-slate-800">RADNI NALOG</h3>
+                    <p className="text-base font-bold text-blue-700 mt-1">{aktivniNalogZaStampu.broj}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">Datum: {aktivniNalogZaStampu.datum}</p>
+                  </div>
+                </div>
 
-              <table className="w-full text-left border-collapse text-sm">
-                <thead>
-                  <tr className="bg-slate-100 border-b border-slate-300 text-slate-700 text-xs uppercase">
-                    <th className="py-2.5 px-3">R.br</th>
-                    <th className="py-2.5 px-3">Šifra / Naziv dela ili usluge</th>
-                    <th className="py-2.5 px-3 text-center">Količina</th>
-                    <th className="py-2.5 px-3 text-right">Cena (RSD)</th>
-                    <th className="py-2.5 px-3 text-right">Ukupno (RSD)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200">
-                  {(aktivniNalogZaStampu.stavke || []).map((s, index) => (
-                    <tr key={s.id || index}>
-                      <td className="py-2.5 px-3 text-slate-500">{index + 1}</td>
-                      <td className="py-2.5 px-3 font-medium text-slate-800">{s.naziv} <span className="text-xs text-slate-400">({s.sifra})</span></td>
-                      <td className="py-2.5 px-3 text-center">{s.kolicina}</td>
-                      <td className="py-2.5 px-3 text-right">{s.cena.toLocaleString()}</td>
-                      <td className="py-2.5 px-3 text-right font-semibold text-slate-900">{(s.kolicina * s.cena).toLocaleString()}</td>
+                <div className="bg-slate-50 p-5 rounded-xl border border-slate-200 text-sm space-y-2">
+                  <p className="font-bold uppercase tracking-wide text-xs text-blue-900 mb-2">Podaci o klijentu i vozilu:</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <p><span className="font-semibold text-slate-600">Ime i prezime:</span> <span className="text-slate-900 font-bold">{aktivniNalogZaStampu.ime} {aktivniNalogZaStampu.prezime}</span></p>
+                    <p><span className="font-semibold text-slate-600">Kontakt telefon:</span> <span className="text-slate-900">{aktivniNalogZaStampu.telefon || '+381 60 0716698'}</span></p>
+                    <p><span className="font-semibold text-slate-600">Model vozila:</span> <span className="text-slate-900">{aktivniNalogZaStampu.modelVozila || '/'}</span></p>
+                    <p><span className="font-semibold text-slate-600">Registarska oznaka:</span> <span className="text-slate-900">{aktivniNalogZaStampu.registracija || '/'}</span></p>
+                    <p className="sm:col-span-2"><span className="font-semibold text-slate-600">Broj šasije (VIN):</span> <span className="text-slate-900 font-mono">{aktivniNalogZaStampu.brojSasije || '/'}</span></p>
+                  </div>
+                </div>
+
+                <table className="w-full text-left border-collapse text-sm mt-4">
+                  <thead>
+                    <tr className="bg-slate-100 border-b-2 border-slate-300 text-slate-700 text-xs uppercase">
+                      <th className="py-3 px-3">R.br</th>
+                      <th className="py-3 px-3">Šifra / Usluga</th>
+                      <th className="py-3 px-3">Naziv dela ili usluge</th>
+                      <th className="py-3 px-3 text-center">Količina</th>
+                      <th className="py-3 px-3 text-right">Cena (RSD)</th>
+                      <th className="py-3 px-3 text-right">Ukupno (RSD)</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {(aktivniNalogZaStampu.stavke || []).map((s, index) => (
+                      <tr key={s.id || index} className="hover:bg-slate-50">
+                        <td className="py-3 px-3 text-slate-500">{index + 1}</td>
+                        <td className="py-3 px-3 font-mono text-xs text-blue-800 font-semibold">{s.sifra || 'USLUGA'}</td>
+                        <td className="py-3 px-3 font-medium text-slate-900">{s.naziv}</td>
+                        <td className="py-3 px-3 text-center">{s.kolicina}</td>
+                        <td className="py-3 px-3 text-right">{s.cena ? s.cena.toLocaleString() : 0}</td>
+                        <td className="py-3 px-3 text-right font-semibold text-slate-900">{(s.kolicina * s.cena).toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
 
-              <div className="flex justify-end pt-4 border-t border-slate-300">
-                <div className="text-right space-y-1">
-                  <p className="text-sm text-slate-600">Ukupan iznos radnog naloga:</p>
-                  <p className="text-2xl font-black text-blue-900">
-                    {(aktivniNalogZaStampu.stavke || []).reduce((acc, curr) => acc + (curr.cena * curr.kolicina), 0).toLocaleString()} RSD
-                  </p>
+                {aktivniNalogZaStampu.work_description && (
+                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-sm space-y-1">
+                    <p className="font-bold uppercase tracking-wide text-xs text-blue-900 mb-1">Opis radova / izvršene usluge:</p>
+                    <p className="text-slate-800 whitespace-pre-wrap leading-relaxed">{aktivniNalogZaStampu.work_description}</p>
+                  </div>
+                )}
+
+                <div className="flex justify-end pt-6 border-t-2 border-slate-300">
+                  <div className="w-full max-w-xs space-y-2 text-right">
+                    <div className="flex justify-between text-sm text-slate-600">
+                      <span>Osnovica (Delovi + Usluge):</span>
+                      <span className="font-semibold">{osnova.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} RSD</span>
+                    </div>
+                    {imaPdv ? (
+                      <div className="flex justify-between text-sm text-slate-600">
+                        <span>PDV (20%):</span>
+                        <span className="font-semibold">{pdvIznos.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} RSD</span>
+                      </div>
+                    ) : (
+                      <div className="text-xs text-slate-500 italic">
+                        (PDV nije obračunat)
+                      </div>
+                    )}
+                    <div className="flex justify-between text-base font-bold text-slate-900 pt-2 border-t border-slate-300">
+                      <span>{imaPdv ? 'Ukupno (Bruto sa PDV):' : 'Ukupno za uplatu:'}</span>
+                      <span className="text-xl text-blue-900">{ukupnoZaUplatu.toLocaleString()} RSD</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-16 flex justify-between text-xs text-slate-600">
+                  <div>
+                    <p className="font-semibold">Potpis primurske stranke / klijenta:</p>
+                    <div className="mt-12 border-t border-slate-400 w-56"></div>
+                  </div>
+                  <div className="text-center">
+                    <p className="font-semibold">Ovlašćeno lice - NB Auto Servis</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">Tel: +381 60 0716698</p>
+                    <div className="mt-8 border-t border-slate-400 w-56"></div>
+                  </div>
                 </div>
               </div>
 
-              <div className="pt-12 flex justify-between text-xs text-slate-600">
-                <div>
-                  <p>Potpis primurske stranke / klijenta:</p>
-                  <div className="mt-8 border-t border-slate-400 w-48"></div>
-                </div>
-                <div className="text-center">
-                  <p>Ovlašćeno lice - NB Auto Servis</p>
-                  <div className="mt-8 border-t border-slate-400 w-48"></div>
-                </div>
-              </div>
             </div>
-
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
