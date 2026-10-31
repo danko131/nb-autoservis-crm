@@ -78,16 +78,16 @@ export default function App() {
       return;
     }
 
-    // Validacija po imenu, prezimenu i broju telefona
-    const postoji = bazaKorisnika.some(k => 
-      k.ime.trim().toLowerCase() === noviKorisnikRucno.ime.trim().toLowerCase() &&
-      (k.prezime || '').trim().toLowerCase() === (noviKorisnikRucno.prezime || '').trim().toLowerCase() &&
-      (k.telefon || '').trim() === (noviKorisnikRucno.telefon || '').trim()
-    );
+    // Validacija po broju šasije (VIN) ako je unet
+    if (noviKorisnikRucno.brojSasije.trim()) {
+      const postojiPoSasiji = bazaKorisnika.some(k => 
+        k.brojSasije && k.brojSasije.trim().toLowerCase() === noviKorisnikRucno.brojSasije.trim().toLowerCase()
+      );
 
-    if (postoji) {
-      alert('Korisnik sa istim imenom, prezimenom i brojem telefona već postoji u bazi!');
-      return;
+      if (postojiPoSasiji) {
+        alert('Automobil sa unetim brojem šasije već postoji u bazi!');
+        return;
+      }
     }
 
     const noviZapis = {
@@ -105,7 +105,7 @@ export default function App() {
       console.error('Greška pri upisu korisnika:', error);
       alert('Greška pri čuvanju korisnika u bazu!');
     } else {
-      alert('Korisnik uspešno sačuvan u bazu!');
+      alert('Korisnik i vozilo uspešno sačuvani u bazu!');
       setNoviKorisnikRucno({ ime: '', prezime: '', telefon: '', modelVozila: '', brojSasije: '', registracija: '', opisRadova: '' });
       ucitajBazuKorisnika();
     }
@@ -318,7 +318,7 @@ export default function App() {
   const [ručniKolicina, setRučniKolicina] = useState(1);
   const [aktivniNalogZaStampu, setAktivniNalogZaStampu] = useState(null);
 
-  // Funkcija za pretragu korisnika po broju šasije (VIN) - sada povlači i registraciju
+  // Funkcija za pretragu korisnika po broju šasije (VIN)
   const dohvatiKorisnikaPoSasiji = () => {
     if (!trenutniNalog.brojSasije.trim()) {
       alert('Unesite broj šasije (VIN) da biste pretražili bazu!');
@@ -339,7 +339,7 @@ export default function App() {
       }));
       alert('Podaci klijenta, vozila i registracija uspešno preuzeti iz baze!');
     } else {
-      alert('Nije pronađen nijedan korisnik sa unetim brojem šasije u bazi.');
+      alert('Nije pronađen nijedan automobil sa unetim brojem šasije u bazi.');
     }
   };
 
@@ -448,15 +448,16 @@ export default function App() {
       return;
     }
 
-    // Sačuvaj u bazu korisnika ako je čekirano i ne postoji već duplikat
+    // Sačuvaj u bazu korisnika ako je čekirano
     if (trenutniNalog.sacuvajKorisnikaUBazu) {
-      const vecPostoji = bazaKorisnika.some(k => 
-        k.ime.trim().toLowerCase() === trenutniNalog.ime.trim().toLowerCase() &&
-        (k.prezime || '').trim().toLowerCase() === (trenutniNalog.prezime || '').trim().toLowerCase() &&
-        (k.telefon || '').trim() === (trenutniNalog.telefon || '').trim()
-      );
+      let vecPostojiPoSasiji = false;
+      if (trenutniNalog.brojSasije.trim()) {
+        vecPostojiPoSasiji = bazaKorisnika.some(k => 
+          k.brojSasije && k.brojSasije.trim().toLowerCase() === trenutniNalog.brojSasije.trim().toLowerCase()
+        );
+      }
 
-      if (!vecPostoji) {
+      if (!vecPostojiPoSasiji) {
         const noviKorisnikZapis = {
           ime: trenutniNalog.ime,
           prezime: trenutniNalog.prezime,
@@ -952,7 +953,7 @@ export default function App() {
             <div className="bg-slate-800 border border-slate-700 p-6 rounded-xl shadow-lg space-y-4">
               <h3 className="text-lg font-bold text-white flex items-center space-x-2">
                 <Users className="text-blue-400" size={20} />
-                <span>Ručni unos novog korisnika i vozila u bazu (Sa validacijom)</span>
+                <span>Ručni unos novog korisnika i vozila u bazu (Validacija po broju šasije)</span>
               </h3>
 
               <form onSubmit={sacuvajRucnogKorisnika} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
