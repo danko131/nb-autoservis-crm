@@ -25,7 +25,10 @@ import {
   LogOut,
   Lock,
   Calculator,
-  Users
+  Users,
+  XCircle,
+  Download,
+  SearchCode
 } from 'lucide-react';
 
 export default function App() {
@@ -75,6 +78,18 @@ export default function App() {
       return;
     }
 
+    // Validacija po imenu, prezimenu i broju telefona
+    const postoji = bazaKorisnika.some(k => 
+      k.ime.trim().toLowerCase() === noviKorisnikRucno.ime.trim().toLowerCase() &&
+      (k.prezime || '').trim().toLowerCase() === (noviKorisnikRucno.prezime || '').trim().toLowerCase() &&
+      (k.telefon || '').trim() === (noviKorisnikRucno.telefon || '').trim()
+    );
+
+    if (postoji) {
+      alert('Korisnik sa istim imenom, prezimenom i brojem telefona već postoji u bazi!');
+      return;
+    }
+
     const noviZapis = {
       ime: noviKorisnikRucno.ime,
       prezime: noviKorisnikRucno.prezime,
@@ -88,7 +103,7 @@ export default function App() {
     const { error } = await supabase.from('baza_korisnika').insert([noviZapis]);
     if (error) {
       console.error('Greška pri upisu korisnika:', error);
-      alert('Greška pri čuvanju korisnika u bazu! Proverite da li tabela "baza_korisnika" postoji.');
+      alert('Greška pri čuvanju korisnika u bazu!');
     } else {
       alert('Korisnik uspešno sačuvan u bazu!');
       setNoviKorisnikRucno({ ime: '', prezime: '', telefon: '', modelVozila: '', brojSasije: '', registracija: '', opisRadova: '' });
@@ -276,6 +291,7 @@ export default function App() {
 
   // --- STANJE I FUNKCIJE: RADNI NALOG ---
   const [radniNalozi, setRadniNalozi] = useState([]);
+  const [naloziPretraga, setNaloziPretraga] = useState('');
   const [trenutniNalog, setTrenutniNalog] = useState({
     broj: 'RN-2026-001',
     datum: new Date().toISOString().split('T')[0],
@@ -301,6 +317,31 @@ export default function App() {
   const [ručniCena, setRučniCena] = useState('');
   const [ručniKolicina, setRučniKolicina] = useState(1);
   const [aktivniNalogZaStampu, setAktivniNalogZaStampu] = useState(null);
+
+  // Funkcija za pretragu korisnika po broju šasije (VIN) - sada povlači i registraciju
+  const dohvatiKorisnikaPoSasiji = () => {
+    if (!trenutniNalog.brojSasije.trim()) {
+      alert('Unesite broj šasije (VIN) da biste pretražili bazu!');
+      return;
+    }
+    const pronadjeni = bazaKorisnika.find(k => 
+      k.brojSasije && k.brojSasije.trim().toLowerCase() === trenutniNalog.brojSasije.trim().toLowerCase()
+    );
+
+    if (pronadjeni) {
+      setTrenutniNalog(prev => ({
+        ...prev,
+        ime: pronadjeni.ime || '',
+        prezime: pronadjeni.prezime || '',
+        telefon: pronadjeni.telefon || '',
+        modelVozila: pronadjeni.modelVozila || '',
+        registracija: pronadjeni.registracija || ''
+      }));
+      alert('Podaci klijenta, vozila i registracija uspešno preuzeti iz baze!');
+    } else {
+      alert('Nije pronađen nijedan korisnik sa unetim brojem šasije u bazi.');
+    }
+  };
 
   const ucitajRadneNaloge = async () => {
     const { data, error } = await supabase.from('radni_nalozi').select('*').order('id', { ascending: false });
@@ -407,18 +448,27 @@ export default function App() {
       return;
     }
 
+    // Sačuvaj u bazu korisnika ako je čekirano i ne postoji već duplikat
     if (trenutniNalog.sacuvajKorisnikaUBazu) {
-      const noviKorisnikZapis = {
-        ime: trenutniNalog.ime,
-        prezime: trenutniNalog.prezime,
-        telefon: trenutniNalog.telefon,
-        model_vozila: trenutniNalog.modelVozila,
-        broj_sasije: trenutniNalog.brojSasije,
-        registracija: trenutniNalog.registracija,
-        opis_radova: trenutniNalog.work_description
-      };
-      await supabase.from('baza_korisnika').insert([noviKorisnikZapis]);
-      ucitajBazuKorisnika();
+      const vecPostoji = bazaKorisnika.some(k => 
+        k.ime.trim().toLowerCase() === trenutniNalog.ime.trim().toLowerCase() &&
+        (k.prezime || '').trim().toLowerCase() === (trenutniNalog.prezime || '').trim().toLowerCase() &&
+        (k.telefon || '').trim() === (trenutniNalog.telefon || '').trim()
+      );
+
+      if (!vecPostoji) {
+        const noviKorisnikZapis = {
+          ime: trenutniNalog.ime,
+          prezime: trenutniNalog.prezime,
+          telefon: trenutniNalog.telefon,
+          model_vozila: trenutniNalog.modelVozila,
+          broj_sasije: trenutniNalog.brojSasije,
+          registracija: trenutniNalog.registracija,
+          opis_radova: trenutniNalog.work_description
+        };
+        await supabase.from('baza_korisnika').insert([noviKorisnikZapis]);
+        ucitajBazuKorisnika();
+      }
     }
 
     const osnovnaCenaNaloga = trenutniNalog.stavke.reduce((acc, curr) => acc + (curr.cena * curr.kolicina), 0);
@@ -433,6 +483,7 @@ export default function App() {
       opis: trenutniNalog.work_description || 'Servis po radnom nalogu',
       cena: ukupnaCenaNaloga,
       zavrseno: false,
+      nije_se_pojavio: false,
       dizalica: trenutniNalog.dizalica || 'Dizalica 1'
     };
 
@@ -496,6 +547,7 @@ export default function App() {
           opis: t.opis,
           cena: t.cena,
           zavrseno: t.zavrseno,
+          nije_se_pojavio: t.nije_se_pojavio || false,
           dizalica: t.dizalica || 'Dizalica 1'
         });
       });
@@ -538,13 +590,14 @@ export default function App() {
       opis: noviTermin.opis,
       cena: Number(noviTermin.cena) || 0,
       zavrseno: false,
+      nije_se_pojavio: false,
       dizalica: noviTermin.dizalica || 'Dizalica 1'
     };
 
     const { error } = await supabase.from('termini').insert([novi]);
     if (error) {
       console.error('Greška pri čuvanju termina:', error);
-      alert('Greška pri čuvanju termina u bazu! Proverite da li tabela u Supabase ima kolone "vreme_pocetka", "vreme_zavrsetka" i "dizalica".');
+      alert('Greška pri čuvanju termina u bazu!');
     } else {
       ucitajTermine();
       setNoviTermin({ vremePocetka: '09:00', vremeZavrsetka: '10:00', klijent: '', auto: '', opis: '', cena: '', dizalica: noviTermin.dizalica });
@@ -556,7 +609,27 @@ export default function App() {
     const t = postojeci.find(x => x.id === terminId);
     if (!t) return;
 
-    const { error } = await supabase.from('termini').update({ zavrseno: !t.zavrseno }).eq('id', terminId);
+    const noviZavrseno = !t.zavrseno;
+    const { error } = await supabase.from('termini').update({ 
+      zavrseno: noviZavrseno, 
+      nije_se_pojavio: noviZavrseno ? false : t.nije_se_pojavio 
+    }).eq('id', terminId);
+
+    if (error) console.error(error);
+    else ucitajTermine();
+  };
+
+  const toggleNijeSePojavio = async (datumStr, terminId) => {
+    const postojeci = zakazanaVozila[datumStr] || [];
+    const t = postojeci.find(x => x.id === terminId);
+    if (!t) return;
+
+    const noviNijeSePojavio = !t.nije_se_pojavio;
+    const { error } = await supabase.from('termini').update({ 
+      nije_se_pojavio: noviNijeSePojavio,
+      zavrseno: noviNijeSePojavio ? false : t.zavrseno 
+    }).eq('id', terminId);
+
     if (error) console.error(error);
     else ucitajTermine();
   };
@@ -565,6 +638,53 @@ export default function App() {
     const { error } = await supabase.from('termini').delete().eq('id', terminId);
     if (error) console.error(error);
     else ucitajTermine();
+  };
+
+  // --- PREUZIMANJE EXCEL / CSV IZVEŠTAJA SA KALENDARA ---
+  const preuzmiExcelIzvestaj = () => {
+    const lista = zakazanaVozila[izabraniDatumZaPregled] || [];
+    if (lista.length === 0) {
+      alert('Nema zakazanih poslova za izabrani datum!');
+      return;
+    }
+
+    let csvContent = "data:text/csv;charset=utf-8,\uFEFF";
+    csvContent += "Datum,Dizalica,Vreme pocetka,Vreme zavrsetka,Klijent,Vozilo,Opis radova,Cena (RSD),Status\r\n";
+
+    let ukupnoPazar = 0;
+
+    lista.forEach(t => {
+      let statusStr = "U toku";
+      if (t.zavrseno) {
+        statusStr = "Završeno i naplaćeno";
+        ukupnoPazar += Number(t.cena) || 0;
+      } else if (t.nije_se_pojavio) {
+        statusStr = "Korisnik se nije pojavio";
+      }
+
+      const red = [
+        izabraniDatumZaPregled,
+        `"${t.dizalica || 'Dizalica 1'}"`,
+        t.vremePocetka,
+        t.vremeZavrsetka,
+        `"${t.klijent}"`,
+        `"${t.auto || ''}"`,
+        `"${t.opis || ''}"`,
+        t.cena || 0,
+        `"${statusStr}"`
+      ].join(",");
+      csvContent += red + "\r\n";
+    });
+
+    csvContent += `\r\n,,, , , ,UKUPNO NAPLAĆENO:,${ukupnoPazar} RSD\r\n`;
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `izvestaj_servisa_${izabraniDatumZaPregled}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   // --- STANJE I FUNKCIJE: PREDRAČUN ---
@@ -832,7 +952,7 @@ export default function App() {
             <div className="bg-slate-800 border border-slate-700 p-6 rounded-xl shadow-lg space-y-4">
               <h3 className="text-lg font-bold text-white flex items-center space-x-2">
                 <Users className="text-blue-400" size={20} />
-                <span>Ručni unos novog korisnika i vozila u bazu</span>
+                <span>Ručni unos novog korisnika i vozila u bazu (Sa validacijom)</span>
               </h3>
 
               <form onSubmit={sacuvajRucnogKorisnika} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -885,7 +1005,7 @@ export default function App() {
                     placeholder="WAUZZZ..."
                     value={noviKorisnikRucno.brojSasije}
                     onChange={e => setNoviKorisnikRucno({...noviKorisnikRucno, brojSasije: e.target.value})}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 uppercase font-mono"
                   />
                 </div>
                 <div>
@@ -895,7 +1015,7 @@ export default function App() {
                     placeholder="BG-1234-AB"
                     value={noviKorisnikRucno.registracija}
                     onChange={e => setNoviKorisnikRucno({...noviKorisnikRucno, registracija: e.target.value})}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 uppercase font-mono"
                   />
                 </div>
                 <div className="sm:col-span-2 lg:col-span-3">
@@ -1311,6 +1431,30 @@ export default function App() {
                       <User size={16} className="text-blue-400" />
                       <span>Podaci o klijentu i vozilu</span>
                     </h4>
+
+                    {/* Broj šasije sa dugmetom za automatsko povlačenje */}
+                    <div>
+                      <label className="text-xs text-slate-400 block mb-1">Broj šasije (VIN)</label>
+                      <div className="flex space-x-2">
+                        <input 
+                          type="text" 
+                          value={trenutniNalog.brojSasije}
+                          onChange={e => setTrenutniNalog({...trenutniNalog, brojSasije: e.target.value})}
+                          placeholder="WAUZZZ..."
+                          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 uppercase font-mono"
+                        />
+                        <button 
+                          type="button" 
+                          onClick={dohvatiKorisnikaPoSasiji}
+                          className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-lg text-xs font-semibold flex items-center space-x-1 shrink0 transition"
+                          title="Pronađi klijenta po broju šasije u bazi"
+                        >
+                          <SearchCode size={16} />
+                          <span>Pronađi</span>
+                        </button>
+                      </div>
+                    </div>
+
                     <div>
                       <label className="text-xs text-slate-400 block mb-1">Ime klijenta</label>
                       <input 
@@ -1352,23 +1496,13 @@ export default function App() {
                       />
                     </div>
                     <div>
-                      <label className="text-xs text-slate-400 block mb-1">Broj šasije (VIN)</label>
-                      <input 
-                        type="text" 
-                        value={trenutniNalog.brojSasije}
-                        onChange={e => setTrenutniNalog({...trenutniNalog, brojSasije: e.target.value})}
-                        placeholder="WAUZZZ..."
-                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-                      />
-                    </div>
-                    <div>
                       <label className="text-xs text-slate-400 block mb-1">Registarska oznaka</label>
                       <input 
                         type="text" 
                         value={trenutniNalog.registracija}
                         onChange={e => setTrenutniNalog({...trenutniNalog, registracija: e.target.value})}
                         placeholder="BG-000-XX"
-                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 uppercase font-mono"
                       />
                     </div>
 
@@ -1608,9 +1742,21 @@ export default function App() {
 
             {podTabNalog === 'arhiva' && (
               <div className="bg-slate-800 border border-slate-700 p-6 rounded-xl space-y-6">
-                <div>
-                  <h3 className="text-lg font-bold text-white">Arhiva sačuvanih radnih naloga (Iz Baze)</h3>
-                  <p className="text-xs text-slate-400">Pregled svih izveštaja sačuvanih u Supabase bazi</p>
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div>
+                    <h3 className="text-lg font-bold text-white">Arhiva sačuvanih radnih naloga ({radniNalozi.length})</h3>
+                    <p className="text-xs text-slate-400">Pregled svih izveštaja sačuvanih u Supabase bazi</p>
+                  </div>
+                  <div className="relative w-full md:w-80">
+                    <Search size={16} className="absolute left-3 top-3 text-slate-400" />
+                    <input 
+                      type="text"
+                      value={naloziPretraga}
+                      onChange={(e) => setNaloziPretraga(e.target.value)}
+                      placeholder="Pretraga po broju, klijentu, vozilu..."
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
                 </div>
 
                 <div className="overflow-x-auto border border-slate-700 rounded-xl">
@@ -1626,28 +1772,40 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-700">
-                      {radniNalozi.map(rn => {
-                        const osnovnaCena = (rn.stavke || []).reduce((acc, curr) => acc + (curr.cena * curr.kolicina), 0);
-                        const ukupnoCena = rn.include_vat !== false ? osnovnaCena * 1.20 : osnovnaCena;
-                        return (
-                          <tr key={rn.id} className="hover:bg-slate-750 transition">
-                            <td className="py-3 px-4 font-bold text-blue-400">{rn.broj}</td>
-                            <td className="py-3 px-4 text-slate-300">{rn.datum}</td>
-                            <td className="py-3 px-4 font-medium text-white">{rn.ime} {rn.prezime} ({rn.telefon})</td>
-                            <td className="py-3 px-4 text-slate-300">{rn.modelVozila} [{rn.registracija || 'N/A'}]</td>
-                            <td className="py-3 px-4 font-semibold text-emerald-400">{ukupnoCena.toLocaleString()} RSD</td>
-                            <td className="py-3 px-4 text-right">
-                              <button 
-                                onClick={() => setAktivniNalogZaStampu(rn)}
-                                className="bg-slate-900 hover:bg-blue-600 text-slate-200 hover:text-white px-3 py-1.5 rounded-lg border border-slate-700 flex items-center space-x-1.5 ml-auto text-xs font-semibold transition shadow"
-                              >
-                                <Printer size={14} />
-                                <span> Štampaj</span>
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
+                      {radniNalozi
+                        .filter(rn => {
+                          const term = naloziPretraga.toLowerCase();
+                          return (
+                            rn.broj.toLowerCase().includes(term) ||
+                            (rn.ime && rn.ime.toLowerCase().includes(term)) ||
+                            (rn.prezime && rn.prezime.toLowerCase().includes(term)) ||
+                            (rn.modelVozila && rn.modelVozila.toLowerCase().includes(term)) ||
+                            (rn.registracija && rn.registracija.toLowerCase().includes(term)) ||
+                            (rn.telefon && rn.telefon.toLowerCase().includes(term))
+                          );
+                        })
+                        .map(rn => {
+                          const osnovnaCena = (rn.stavke || []).reduce((acc, curr) => acc + (curr.cena * curr.kolicina), 0);
+                          const ukupnoCena = rn.include_vat !== false ? osnovnaCena * 1.20 : osnovnaCena;
+                          return (
+                            <tr key={rn.id} className="hover:bg-slate-750 transition">
+                              <td className="py-3 px-4 font-bold text-blue-400">{rn.broj}</td>
+                              <td className="py-3 px-4 text-slate-300">{rn.datum}</td>
+                              <td className="py-3 px-4 font-medium text-white">{rn.ime} {rn.prezime} ({rn.telefon})</td>
+                              <td className="py-3 px-4 text-slate-300">{rn.modelVozila} [{rn.registracija || 'N/A'}]</td>
+                              <td className="py-3 px-4 font-semibold text-emerald-400">{ukupnoCena.toLocaleString()} RSD</td>
+                              <td className="py-3 px-4 text-right">
+                                <button 
+                                  onClick={() => setAktivniNalogZaStampu(rn)}
+                                  className="bg-slate-900 hover:bg-blue-600 text-slate-200 hover:text-white px-3 py-1.5 rounded-lg border border-slate-700 flex items-center space-x-1.5 ml-auto text-xs font-semibold transition shadow"
+                                >
+                                  <Printer size={14} />
+                                  <span> Štampaj</span>
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
                     </tbody>
                   </table>
                 </div>
@@ -1717,8 +1875,8 @@ export default function App() {
                       
                       <div className="space-y-1 overflow-y-auto flex-1 my-1">
                         {terminiZaDan.slice(0, 2).map(t => (
-                          <div key={t.id} className={`rounded p-1 text-[11px] truncate flex items-center space-x-1 ${t.zavrseno ? 'bg-emerald-950/60 border border-emerald-800/60 text-emerald-200' : 'bg-blue-950/80 border border-blue-800/80 text-blue-200'}`}>
-                            {t.zavrseno ? <CheckCircle size={10} className="text-emerald-400 shrink-0" /> : <Clock size={10} className="shrink-0" />}
+                          <div key={t.id} className={`rounded p-1 text-[11px] truncate flex items-center space-x-1 ${t.zavrseno ? 'bg-emerald-950/60 border border-emerald-800/60 text-emerald-200' : t.nije_se_pojavio ? 'bg-red-950/60 border border-red-800/60 text-red-200' : 'bg-blue-950/80 border border-blue-800/80 text-blue-200'}`}>
+                            {t.zavrseno ? <CheckCircle size={10} className="text-emerald-400 shrink-0" /> : t.nije_se_pojavio ? <XCircle size={10} className="text-red-400 shrink-0" /> : <Clock size={10} className="shrink-0" />}
                             <span className="truncate">{t.vremePocetka}-{t.vremeZavrsetka} | {t.klijent}</span>
                           </div>
                         ))}
@@ -1748,20 +1906,30 @@ export default function App() {
                         <CalendarIcon className="text-blue-400" />
                         <span>Raspored po dizalicama za datum: {izabraniDatumZaPregled}</span>
                       </h4>
-                      <p className="text-xs text-slate-400 mt-0.5">Evidentirano vreme početka i završetka radova</p>
+                      <p className="text-xs text-slate-400 mt-0.5">Evidentirano vreme početka i završetka radova (24h)</p>
                     </div>
-                    <button onClick={() => setPrikaziModalDana(false)} className="text-slate-400 hover:text-white bg-slate-900 p-2 rounded-xl border border-slate-700">
-                      <X size={18} />
-                    </button>
+                    <div className="flex items-center space-x-3">
+                      <button 
+                        onClick={preuzmiExcelIzvestaj}
+                        className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl text-xs font-semibold flex items-center space-x-2 transition shadow"
+                      >
+                        <Download size={16} />
+                        <span>Preuzmi Excel izveštaj</span>
+                      </button>
+                      <button onClick={() => setPrikaziModalDana(false)} className="text-slate-400 hover:text-white bg-slate-900 p-2 rounded-xl border border-slate-700">
+                        <X size={18} />
+                      </button>
+                    </div>
                   </div>
 
                   {(() => {
                     const lista = zakazanaVozila[izabraniDatumZaPregled] || [];
                     const zavrseniLista = lista.filter(t => t.zavrseno);
+                    const propusteniLista = lista.filter(t => t.nije_se_pojavio);
                     const ukupniPazarDana = zavrseniLista.reduce((acc, curr) => acc + (Number(curr.cena) || 0), 0);
 
                     return (
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-900 p-4 rounded-xl border border-slate-700">
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-slate-900 p-4 rounded-xl border border-slate-700">
                         <div className="flex items-center space-x-3">
                           <div className="bg-emerald-600/20 p-3 rounded-xl border border-emerald-600/30 text-emerald-400">
                             <DollarSign size={24} />
@@ -1783,13 +1951,23 @@ export default function App() {
                         </div>
 
                         <div className="flex items-center space-x-3">
+                          <div className="bg-red-600/20 p-3 rounded-xl border border-red-600/30 text-red-400">
+                            <XCircle size={24} />
+                          </div>
+                          <div>
+                            <p className="text-xs text-slate-400">Nisu se pojavili</p>
+                            <p className="text-xl font-bold text-red-400">{propusteniLista.length}</p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center space-x-3">
                           <div className="bg-purple-600/20 p-3 rounded-xl border border-purple-600/30 text-purple-400">
                             <CheckCircle2 size={24} />
                           </div>
                           <div>
                             <p className="text-xs text-slate-400">Status dana</p>
                             <p className="text-sm font-bold text-purple-300 mt-1">
-                              {lista.length > 0 && zavrseniLista.length === lista.length ? 'Sve završeno ✓' : 'U toku radova...'}
+                              {lista.length > 0 && zavrseniLista.length + propusteniLista.length === lista.length ? 'Sve obrađeno ✓' : 'U toku radova...'}
                             </p>
                           </div>
                         </div>
@@ -1797,6 +1975,7 @@ export default function App() {
                     );
                   })()}
 
+                  {/* 3 DIZALICE - KOLONE */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     {['Dizalica 1', 'Dizalica 2', 'Dizalica 3'].map((dizalicaName) => {
                       const listaZaDizalicu = (zakazanaVozila[izabraniDatumZaPregled] || []).filter(
@@ -1821,7 +2000,7 @@ export default function App() {
                                 <p className="text-xs text-slate-500 italic text-center py-8">Nema zakazivanja na ovoj dizalici.</p>
                               ) : (
                                 listaZaDizalicu.map((t) => (
-                                  <div key={t.id} className={`p-3 rounded-xl border text-xs space-y-1.5 transition-all ${t.zavrseno ? 'bg-emerald-950/20 border-emerald-800/40 opacity-75' : 'bg-slate-900 border-slate-800'}`}>
+                                  <div key={t.id} className={`p-3 rounded-xl border text-xs space-y-1.5 transition-all ${t.zavrseno ? 'bg-emerald-950/20 border-emerald-800/40 opacity-75' : t.nije_se_pojavio ? 'bg-red-950/20 border-red-800/40 opacity-75' : 'bg-slate-900 border-slate-800'}`}>
                                     <div className="flex justify-between items-center">
                                       <span className="font-bold text-blue-400 flex items-center space-x-1">
                                         <Clock size={12} />
@@ -1836,6 +2015,13 @@ export default function App() {
                                           <CheckCircle size={14} />
                                         </button>
                                         <button
+                                          onClick={() => toggleNijeSePojavio(izabraniDatumZaPregled, t.id)}
+                                          className={`p-1 rounded border transition-colors ${t.nije_se_pojavio ? 'bg-red-600 text-white border-red-500' : 'bg-slate-800 text-slate-400 border-slate-700'}`}
+                                          title="Korisnik se nije pojavio"
+                                        >
+                                          <XCircle size={14} />
+                                        </button>
+                                        <button
                                           onClick={() => obrisiTermin(izabraniDatumZaPregled, t.id)}
                                           className="p-1 bg-slate-800 hover:bg-red-600/20 text-slate-400 hover:text-red-400 rounded border border-slate-700 transition-colors"
                                           title="Obriši termin"
@@ -1844,8 +2030,9 @@ export default function App() {
                                         </button>
                                       </div>
                                     </div>
-                                    <div className={`font-semibold ${t.zavrseno ? 'text-emerald-300 line-through' : 'text-white'}`}>{t.klijent} - {t.auto}</div>
+                                    <div className={`font-semibold ${t.zavrseno ? 'text-emerald-300 line-through' : t.nije_se_pojavio ? 'text-red-300 line-through' : 'text-white'}`}>{t.klijent} - {t.auto}</div>
                                     {t.opis && <div className="text-slate-400">{t.opis}</div>}
+                                    {t.nije_se_pojavio && <div className="text-red-400 font-bold uppercase text-[10px]">Korisnik se nije pojavio</div>}
                                     {t.cena > 0 && <div className="text-emerald-400 font-semibold">{Number(t.cena).toLocaleString()} RSD</div>}
                                   </div>
                                 ))
@@ -2283,7 +2470,7 @@ export default function App() {
                     <p><span className="font-semibold text-slate-600">Ime i prezime:</span> <span className="text-slate-900 font-bold">{aktivniNalogZaStampu.ime} {aktivniNalogZaStampu.prezime}</span></p>
                     <p><span className="font-semibold text-slate-600">Kontakt telefon:</span> <span className="text-slate-900">{aktivniNalogZaStampu.telefon || '+381 60 0716698'}</span></p>
                     <p><span className="font-semibold text-slate-600">Model vozila:</span> <span className="text-slate-900">{aktivniNalogZaStampu.modelVozila || '/'}</span></p>
-                    <p><span className="font-semibold text-slate-600">Registarska oznaka:</span> <span className="text-slate-900">{aktivniNalogZaStampu.registracija || '/'}</span></p>
+                    <p><span className="font-semibold text-slate-600">Registarska oznaka:</span> <span className="text-slate-900 font-mono">{aktivniNalogZaStampu.registracija || '/'}</span></p>
                     <p className="sm:col-span-2"><span className="font-semibold text-slate-600">Broj šasije (VIN):</span> <span className="text-slate-900 font-mono">{aktivniNalogZaStampu.brojSasije || '/'}</span></p>
                   </div>
                 </div>
