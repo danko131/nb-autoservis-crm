@@ -117,7 +117,6 @@ export default function App() {
     e.preventDefault();
     if (!noviArtikal.naziv || !noviArtikal.prodajnaCena) return;
 
-    // Automatska šifra (1, 2, 3...)
     const sledecaSifra = magacin.length > 0 ? Math.max(...magacin.map(item => Number(item.sifra) || 0)) + 1 : 1;
 
     const noviRed = {
@@ -349,12 +348,20 @@ export default function App() {
     }
   };
 
-  // --- STANJE I FUNKCIJE: KALENDAR ---
+  // --- STANJE I FUNKCIJE: KALENDAR (Dizalice) ---
   const [trenutniDatum, setTrenutniDatum] = useState(new Date());
   const [zakazanaVozila, setZakazanaVozila] = useState({});
   const [prikaziModalDana, setPrikaziModalDana] = useState(false);
   const [izabraniDatumZaPregled, setIzabraniDatumZaPregled] = useState('');
-  const [noviTermin, setNoviTermin] = useState({ vreme: '09:00', klijent: '', auto: '', opis: '', cena: '' });
+  
+  const [noviTermin, setNoviTermin] = useState({ 
+    vreme: '09:00', 
+    klijent: '', 
+    auto: '', 
+    opis: '', 
+    cena: '', 
+    dizalica: 'Dizalica 1' 
+  });
 
   const ucitajTermine = async () => {
     const { data, error } = await supabase.from('termini').select('*');
@@ -372,7 +379,8 @@ export default function App() {
           auto: t.auto,
           opis: t.opis,
           cena: t.cena,
-          zavrseno: t.zavrseno
+          zavrseno: t.zavrseno,
+          dizalica: t.dizalica || 'Dizalica 1'
         });
       });
       setZakazanaVozila(grupissani);
@@ -395,9 +403,9 @@ export default function App() {
     return d === 0 ? 6 : d - 1;
   })();
 
-  const otvoriPregledDana = (danStr) => {
+  const otvoriPregledDana = (danStr, dizalicaName = 'Dizalica 1') => {
     setIzabraniDatumZaPregled(danStr);
-    setNoviTermin({ vreme: '09:00', klijent: '', auto: '', opis: '', cena: '' });
+    setNoviTermin({ vreme: '09:00', klijent: '', auto: '', opis: '', cena: '', dizalica: dizalicaName });
     setPrikaziModalDana(true);
   };
 
@@ -412,15 +420,17 @@ export default function App() {
       auto: noviTermin.auto,
       opis: noviTermin.opis,
       cena: Number(noviTermin.cena) || 0,
-      zavrseno: false
+      zavrseno: false,
+      dizalica: noviTermin.dizalica || 'Dizalica 1'
     };
 
     const { error } = await supabase.from('termini').insert([novi]);
     if (error) {
       console.error('Greška pri čuvanju termina:', error);
+      alert('Greška pri čuvanju termina u bazu! Proverite da li tabela u Supabase ima kolonu "dizalica".');
     } else {
       ucitajTermine();
-      setNoviTermin({ vreme: '09:00', klijent: '', auto: '', opis: '', cena: '' });
+      setNoviTermin({ vreme: '09:00', klijent: '', auto: '', opis: '', cena: '', dizalica: noviTermin.dizalica });
     }
   };
 
@@ -710,8 +720,6 @@ export default function App() {
               </div>
             </div>
 
-
-
             <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden shadow-lg">
               <div className="px-6 py-4 border-b border-slate-700 flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
@@ -774,8 +782,6 @@ export default function App() {
           </div>
         )}
 
-        {/* 2. RADNI NALOG MODUL */}
-        
         {/* MODUL KALKULACIJA CENA */}
         {activeTab === 'kalkulacija' && (
           <div className="space-y-6">
@@ -817,7 +823,6 @@ export default function App() {
               </div>
             ) : (
               <div className="space-y-6">
-                {/* 1. KARTICA ZA PRETRAGU I IZMENU KALEKULACIJE CENA */}
                 <div className="bg-slate-800 border border-slate-700 p-6 rounded-xl shadow-lg space-y-4">
                   <div className="flex justify-between items-center border-b border-slate-700 pb-4">
                     <div>
@@ -903,7 +908,6 @@ export default function App() {
                   ) : null}
                 </div>
 
-                {/* 2. ZASEBNA KARTICA ZA DODAVANJE NOVOG ARTIKLA */}
                 <div className="bg-slate-800 border border-slate-700 p-6 rounded-xl shadow-lg space-y-4">
                   <div className="border-b border-slate-700 pb-3">
                     <h4 className="text-base font-semibold text-white flex items-center space-x-2">
@@ -968,6 +972,7 @@ export default function App() {
           </div>
         )}
 
+        {/* 2. RADNI NALOG MODUL */}
         {activeTab === 'radni-nalog' && (
           <div className="space-y-6">
             <div className="flex justify-between items-center bg-slate-800 p-4 rounded-xl border border-slate-700">
@@ -1324,7 +1329,7 @@ export default function App() {
           </div>
         )}
 
-        {/* 3. KALENDAR MODUL */}
+        {/* 3. KALENDAR MODUL - PODELJEN PO 3 DIZALICE */}
         {activeTab === 'kalendar' && (
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row justify-between items-center bg-slate-800 p-4 rounded-xl border border-slate-700 gap-4">
@@ -1339,7 +1344,7 @@ export default function App() {
                   </button>
                 </div>
               </div>
-              <p className="text-xs text-slate-400">Termini i pazar se čuvaju u bazi podataka</p>
+              <p className="text-xs text-slate-400">Termini po dizalicama i pazar se beleže u bazi podataka</p>
             </div>
 
             <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden p-4">
@@ -1381,7 +1386,7 @@ export default function App() {
                         {terminiZaDan.slice(0, 2).map(t => (
                           <div key={t.id} className={`rounded p-1 text-[11px] truncate flex items-center space-x-1 ${t.zavrseno ? 'bg-emerald-950/60 border border-emerald-800/60 text-emerald-200' : 'bg-blue-950/80 border border-blue-800/80 text-blue-200'}`}>
                             {t.zavrseno ? <CheckCircle size={10} className="text-emerald-400 shrink-0" /> : <Clock size={10} className="shrink-0" />}
-                            <span className="truncate">{t.klijent}</span>
+                            <span className="truncate">{t.klijent} ({t.dizalica || 'D1'})</span>
                           </div>
                         ))}
                         {terminiZaDan.length > 2 && (
@@ -1399,17 +1404,18 @@ export default function App() {
               </div>
             </div>
 
+            {/* MODAL ZA PREGLED DANA - 3 ODVOJENE DIZALICE */}
             {prikaziModalDana && (
               <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
-                <div className="bg-slate-800 border border-slate-700 p-6 rounded-2xl max-w-4xl w-full space-y-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+                <div className="bg-slate-800 border border-slate-700 p-6 rounded-2xl max-w-6xl w-full space-y-6 shadow-2xl max-h-[90vh] overflow-y-auto">
                   
                   <div className="flex justify-between items-center border-b border-slate-700 pb-4">
                     <div>
                       <h4 className="font-bold text-xl text-white flex items-center space-x-2">
                         <CalendarIcon className="text-blue-400" />
-                        <span>Izveštaj i raspored za dan: {izabraniDatumZaPregled}</span>
+                        <span>Raspored po dizalicama za datum: {izabraniDatumZaPregled}</span>
                       </h4>
-                      <p className="text-xs text-slate-400 mt-0.5">Status se automatski sinhronizuje sa bazom</p>
+                      <p className="text-xs text-slate-400 mt-0.5">Svaka dizalica ima svoj poseban pregled i listu zakazivanja</p>
                     </div>
                     <button onClick={() => setPrikaziModalDana(false)} className="text-slate-400 hover:text-white bg-slate-900 p-2 rounded-xl border border-slate-700">
                       <X size={18} />
@@ -1458,124 +1464,153 @@ export default function App() {
                     );
                   })()}
 
-                  <div className="space-y-3">
-                    <h5 className="font-semibold text-sm text-slate-300">Evidencija vozila i status naplate:</h5>
-                    {(zakazanaVozila[izabraniDatumZaPregled] || []).length > 0 ? (
-                      <div className="overflow-x-auto border border-slate-700 rounded-xl">
-                        <table className="w-full text-left border-collapse text-sm">
-                          <thead>
-                            <tr className="bg-slate-900 text-slate-400 text-xs uppercase border-b border-slate-700">
-                              <th className="py-3 px-4 text-center">Gotovo / Naplaćeno</th>
-                              <th className="py-3 px-4">Vreme</th>
-                              <th className="py-3 px-4">Klijent</th>
-                              <th className="py-3 px-4">Vozilo</th>
-                              <th className="py-3 px-4">Opis radova</th>
-                              <th className="py-3 px-4">Cena</th>
-                              <th className="py-3 px-4 text-right">Akcija</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-700">
-                            {zakazanaVozila[izabraniDatumZaPregled].map(t => (
-                              <tr key={t.id} className={`hover:bg-slate-750 transition ${t.zavrseno ? 'bg-emerald-950/20' : ''}`}>
-                                <td className="py-3 px-4 text-center">
-                                  <button 
-                                    onClick={() => toggleZavrsenTermin(izabraniDatumZaPregled, t.id)}
-                                    className={`p-2 rounded-lg border transition flex items-center justify-center mx-auto ${t.zavrseno ? 'bg-emerald-600 border-emerald-500 text-white shadow-lg shadow-emerald-600/30' : 'bg-slate-900 border-slate-700 text-slate-500 hover:text-slate-300'}`}
-                                  >
-                                    <CheckCircle2 size={18} />
-                                  </button>
-                                </td>
-                                <td className="py-3 px-4 font-bold text-blue-400 flex items-center space-x-1 pt-4">
-                                  <Clock size={14} />
-                                  <span>{t.vreme}</span>
-                                </td>
-                                <td className={`py-3 px-4 font-medium ${t.zavrseno ? 'text-emerald-300 line-through' : 'text-white'}`}>{t.klijent}</td>
-                                <td className="py-3 px-4 text-slate-300">{t.auto || '/'}</td>
-                                <td className="py-3 px-4 text-slate-300 text-xs">{t.opis || '/'}</td>
-                                <td className="py-3 px-4 text-emerald-400 font-semibold">{t.cena ? `${Number(t.cena).toLocaleString()} RSD` : '/'}</td>
-                                <td className="py-3 px-4 text-right">
-                                  <button 
-                                    onClick={() => obrisiTermin(izabraniDatumZaPregled, t.id)} 
-                                    className="text-red-400 hover:text-red-300 p-1.5 bg-slate-900 rounded-lg border border-slate-700 transition"
-                                  >
-                                    <Trash2 size={15} />
-                                  </button>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <div className="bg-slate-900/60 border border-slate-700/60 rounded-xl p-6 text-center text-slate-400 text-sm">
-                        Nema zakazanih termina za ovaj datum.
-                      </div>
-                    )}
+                  {/* 3 DIZALICE - KOLONE */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {['Dizalica 1', 'Dizalica 2', 'Dizalica 3'].map((dizalicaName) => {
+                      const listaZaDizalicu = (zakazanaVozila[izabraniDatumZaPregled] || []).filter(
+                        t => (t.dizalica || 'Dizalica 1') === dizalicaName
+                      );
+
+                      return (
+                        <div key={dizalicaName} className="bg-slate-950 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between shadow-inner">
+                          <div className="space-y-3">
+                            <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+                              <h5 className="font-bold text-base text-blue-400 flex items-center space-x-2">
+                                <Car size={16} />
+                                <span>{dizalicaName}</span>
+                              </h5>
+                              <span className="text-xs bg-slate-900 border border-slate-800 text-slate-300 px-2 py-0.5 rounded-full font-medium">
+                                {listaZaDizalicu.length} termina
+                              </span>
+                            </div>
+
+                            <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
+                              {listaZaDizalicu.length === 0 ? (
+                                <p className="text-xs text-slate-500 italic text-center py-8">Nema zakazivanja na ovoj dizalici.</p>
+                              ) : (
+                                listaZaDizalicu.map((t) => (
+                                  <div key={t.id} className={`p-3 rounded-xl border text-xs space-y-1.5 transition-all ${t.zavrseno ? 'bg-emerald-950/20 border-emerald-800/40 opacity-75' : 'bg-slate-900 border-slate-800'}`}>
+                                    <div className="flex justify-between items-center">
+                                      <span className="font-bold text-blue-400 flex items-center space-x-1">
+                                        <Clock size={12} />
+                                        <span>{t.vreme}</span>
+                                      </span>
+                                      <div className="flex items-center space-x-1">
+                                        <button
+                                          onClick={() => toggleZavrsenTermin(izabraniDatumZaPregled, t.id)}
+                                          className={`p-1 rounded border transition-colors ${t.zavrseno ? 'bg-emerald-600 text-white border-emerald-500' : 'bg-slate-800 text-slate-400 border-slate-700'}`}
+                                          title="Označi kao završeno"
+                                        >
+                                          <CheckCircle size={14} />
+                                        </button>
+                                        <button
+                                          onClick={() => obrisiTermin(izabraniDatumZaPregled, t.id)}
+                                          className="p-1 bg-slate-800 hover:bg-red-600/20 text-slate-400 hover:text-red-400 rounded border border-slate-700 transition-colors"
+                                          title="Obriši termin"
+                                        >
+                                          <Trash2 size={14} />
+                                        </button>
+                                      </div>
+                                    </div>
+                                    <div className={`font-semibold ${t.zavrseno ? 'text-emerald-300 line-through' : 'text-white'}`}>{t.klijent} - {t.auto}</div>
+                                    {t.opis && <div className="text-slate-400">{t.opis}</div>}
+                                    {t.cena > 0 && <div className="text-emerald-400 font-semibold">{Number(t.cena).toLocaleString()} RSD</div>}
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={() => setNoviTermin(prev => ({ ...prev, dizalica: dizalicaName }))}
+                            className={`mt-4 w-full py-2.5 px-3 rounded-xl text-xs font-semibold transition-all flex items-center justify-center space-x-1.5 ${noviTermin.dizalica === dizalicaName ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20' : 'bg-slate-900 border border-slate-800 text-slate-300 hover:bg-slate-800'}`}
+                          >
+                            <Plus size={14} />
+                            <span>Izaberi za unos ({dizalicaName})</span>
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
 
-                  <div className="bg-slate-900 border border-slate-700 p-5 rounded-xl space-y-4">
-                    <h5 className="font-semibold text-sm text-white flex items-center space-x-2">
-                      <Plus size={16} className="text-blue-400" />
-                      <span>Zakaži novi termin za ovaj dan</span>
+                  {/* Forma za dodavanje termina tačno za izabranu dizalicu */}
+                  <div className="bg-slate-950 border border-slate-800 p-5 rounded-2xl space-y-4">
+                    <h5 className="font-bold text-sm text-white flex items-center space-x-2">
+                      <Plus className="text-blue-400" size={16} />
+                      <span>Novi termin za: <strong className="text-blue-400">{noviTermin.dizalica}</strong> (Datum: {izabraniDatumZaPregled})</span>
                     </h5>
 
-                    <form onSubmit={sacuvajTermin} className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <form onSubmit={sacuvajTermin} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3">
                       <div>
-                        <label className="text-xs text-slate-400 block mb-1">Vreme *</label>
-                        <input 
-                          type="time" 
+                        <label className="text-[10px] text-slate-400 block mb-1">Dizalica</label>
+                        <select
+                          value={noviTermin.dizalica}
+                          onChange={e => setNoviTermin({...noviTermin, dizalica: e.target.value})}
+                          className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white"
+                        >
+                          <option value="Dizalica 1">Dizalica 1</option>
+                          <option value="Dizalica 2">Dizalica 2</option>
+                          <option value="Dizalica 3">Dizalica 3</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-slate-400 block mb-1">Vreme *</label>
+                        <input
+                          type="time"
                           value={noviTermin.vreme}
                           onChange={e => setNoviTermin({...noviTermin, vreme: e.target.value})}
-                          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white"
                           required
                         />
                       </div>
                       <div>
-                        <label className="text-xs text-slate-400 block mb-1">Ime i prezime klijenta *</label>
-                        <input 
-                          type="text" 
-                          placeholder="Npr. Petar Petrović"
+                        <label className="text-[10px] text-slate-400 block mb-1">Ime klijenta *</label>
+                        <input
+                          type="text"
+                          placeholder="Petar Petrović"
                           value={noviTermin.klijent}
                           onChange={e => setNoviTermin({...noviTermin, klijent: e.target.value})}
-                          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-500"
                           required
                         />
                       </div>
                       <div>
-                        <label className="text-xs text-slate-400 block mb-1">Model vozila</label>
-                        <input 
-                          type="text" 
-                          placeholder="Npr. Audi A4 2.0 TDI"
+                        <label className="text-[10px] text-slate-400 block mb-1">Model vozila</label>
+                        <input
+                          type="text"
+                          placeholder="Audi A4"
                           value={noviTermin.auto}
                           onChange={e => setNoviTermin({...noviTermin, auto: e.target.value})}
-                          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-500"
                         />
                       </div>
                       <div>
-                        <label className="text-xs text-slate-400 block mb-1">Cena (RSD)</label>
-                        <input 
-                          type="number" 
-                          placeholder="Npr. 12000"
+                        <label className="text-[10px] text-slate-400 block mb-1">Cena (RSD)</label>
+                        <input
+                          type="number"
+                          placeholder="12000"
                           value={noviTermin.cena}
                           onChange={e => setNoviTermin({...noviTermin, cena: e.target.value})}
-                          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-500"
                         />
                       </div>
-                      <div className="sm:col-span-2">
-                        <label className="text-xs text-slate-400 block mb-1">Šta se radi / Opis radova</label>
-                        <input 
-                          type="text" 
-                          placeholder="Npr. Mali servis, zamena pločica..."
+                      <div>
+                        <label className="text-[10px] text-slate-400 block mb-1">Opis / Radovi</label>
+                        <input
+                          type="text"
+                          placeholder="Mali servis"
                           value={noviTermin.opis}
                           onChange={e => setNoviTermin({...noviTermin, opis: e.target.value})}
-                          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-500"
                         />
                       </div>
-
-                      <div className="sm:col-span-2 pt-2 flex justify-end">
-                        <button type="submit" className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-2 rounded-lg font-medium text-sm transition flex items-center space-x-2 shadow">
+                      <div className="flex items-end">
+                        <button
+                          type="submit"
+                          className="w-full bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium py-2 px-3 rounded-xl transition-colors shadow-lg shadow-blue-600/20 flex items-center justify-center space-x-1"
+                        >
                           <Plus size={16} />
-                          <span>Dodaj termin u raspored</span>
+                          <span>Zakaži</span>
                         </button>
                       </div>
                     </form>
@@ -1853,7 +1888,7 @@ export default function App() {
         )}
       </main>
 
-            {/* MODAL ZA ŠTAMPU RADNOG NALOGA */}
+      {/* MODAL ZA ŠTAMPU RADNOG NALOGA */}
       {aktivniNalogZaStampu && (() => {
         const imaPdv = aktivniNalogZaStampu.include_vat !== false;
         const osnova = (aktivniNalogZaStampu.stavke || []).reduce((acc, curr) => acc + (curr.cena * curr.kolicina), 0);
@@ -1864,7 +1899,6 @@ export default function App() {
           <div className="fixed inset-0 bg-black/85 flex items-center justify-center z-50 p-2 sm:p-6 overflow-y-auto print:p-0 print:bg-white">
             <div className="bg-white text-slate-900 rounded-2xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl relative print:shadow-none print:max-w-none print:w-full print:h-auto print:max-h-none overflow-hidden">
               
-              {/* STICKY HEADER SA DUGMIĆIMA - UVEK VIDLJIV NA VRHU */}
               <div className="sticky top-0 bg-slate-900 text-white p-4 px-6 flex justify-between items-center z-10 print:hidden border-b border-slate-800">
                 <div className="flex items-center space-x-3">
                   <Printer className="text-blue-400" size={20} />
@@ -1888,7 +1922,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* SADRŽAJ RADNOG NALOGA (SKROLABILAN) */}
               <div className="p-8 sm:p-10 overflow-y-auto flex-1 space-y-6 bg-white">
                 <div className="flex justify-between items-start border-b-2 border-blue-900 pb-6">
                   <div>
