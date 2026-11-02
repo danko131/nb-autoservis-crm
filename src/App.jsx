@@ -1156,7 +1156,7 @@ export default function App() {
               NB
             </div>
             <h2 className="text-2xl font-bold text-white tracking-tight">Prijava na sistem</h2>
-            <p className="text-xs text-slate-400">Unesite pristupne podatke za NB CRM sistem</p>
+            <p className="text-xs text-slate-400">Unesite pristupne podatke za NB AUTOSERVIS APLIKACIJU</p>
           </div>
 
           {loginGreska && (
@@ -1220,7 +1220,7 @@ export default function App() {
             NB
           </div>
           <div>
-            <h1 className="text-xl font-bold tracking-tight text-white">NB CRM sistem</h1>
+            <h1 className="text-xl font-bold tracking-tight text-white">NB AUTOSERVIS</h1>
             <p className="text-xs text-slate-400">Upravljanje autoservisom i magacinom</p>
           </div>
         </div>
