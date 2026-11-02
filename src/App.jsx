@@ -58,6 +58,7 @@ export default function App() {
   });
 
   const [istorijaKorisnikaModal, setIstorijaKorisnikaModal] = useState(null);
+  const [uredjivanjeKorisnikaModal, setUredjivanjeKorisnikaModal] = useState(null);
 
   const ucitajBazuKorisnika = async () => {
     const { data, error } = await supabase.from('baza_korisnika').select('*').order('id', { ascending: false });
@@ -116,6 +117,70 @@ export default function App() {
       setNoviKorisnikRucno({ ime: '', prezime: '', telefon: '', modelVozila: '', brojSasije: '', registracija: '', kilometraza: '', opisRadova: '' });
       ucitajBazuKorisnika();
     }
+  };
+
+  // PROPAGACIJA IZMENA KORISNIKA NA OSTALE TABELE (RADNE NALOGE I TERMINE)
+  const sacuvajIzmenjenogKorisnika = async (e) => {
+    e.preventDefault();
+    if (!uredjivanjeKorisnikaModal) return;
+
+    const stariVin = (bazaKorisnika.find(k => k.id === uredjivanjeKorisnikaModal.id)?.brojSasije || '').trim().toLowerCase();
+    const noviVin = (uredjivanjeKorisnikaModal.brojSasije || '').trim();
+
+    // 1. Ažuriranje u bazi korisnika
+    const { error } = await supabase.from('baza_korisnika').update({
+      ime: uredjivanjeKorisnikaModal.ime,
+      prezime: uredjivanjeKorisnikaModal.prezime,
+      telefon: uredjivanjeKorisnikaModal.telefon,
+      model_vozila: uredjivanjeKorisnikaModal.modelVozila,
+      broj_sasije: noviVin,
+      registracija: uredjivanjeKorisnikaModal.registracija,
+      kilometraza: uredjivanjeKorisnikaModal.kilometraza,
+      opis_radova: uredjivanjeKorisnikaModal.opisRadova
+    }).eq('id', uredjivanjeKorisnikaModal.id);
+
+    if (error) {
+      console.error('Greška pri izmeni korisnika:', error);
+      alert('Greška pri ažuriranju korisnika u bazi!');
+      return;
+    }
+
+    // 2. Automatska propagacija na radne naloge (po starom VIN-u ili ID-ju)
+    for (const rn of radniNalozi) {
+      if ((rn.brojSasije && rn.brojSasije.trim().toLowerCase() === stariVin) || (stariVin === '' && rn.ime === uredjivanjeKorisnikaModal.ime)) {
+        await supabase.from('radni_nalozi').update({
+          ime: uredjivanjeKorisnikaModal.ime,
+          prezime: uredjivanjeKorisnikaModal.prezime,
+          telefon: uredjivanjeKorisnikaModal.telefon,
+          model_vozila: uredjivanjeKorisnikaModal.modelVozila,
+          broj_sasije: noviVin,
+          registracija: uredjivanjeKorisnikaModal.registracija,
+          kilometraza: uredjivanjeKorisnikaModal.kilometraza
+        }).eq('id', rn.id);
+      }
+    }
+
+    // 3. Automatska propagacija na termine u kalendaru
+    for (const datumStr of Object.keys(zakazanaVozila)) {
+      const listaTermina = zakazanaVozila[datumStr];
+      for (const t of listaTermina) {
+        if ((t.brojSasije && t.brojSasije.trim().toLowerCase() === stariVin) || t.klijent.includes(bazaKorisnika.find(k => k.id === uredjivanjeKorisnikaModal.id)?.ime || '')) {
+          const novoImeKlijenta = `${uredjivanjeKorisnikaModal.ime} ${uredjivanjeKorisnikaModal.prezime}`.trim();
+          await supabase.from('termini').update({
+            klijent: novoImeKlijenta,
+            telefon: uredjivanjeKorisnikaModal.telefon,
+            auto: uredjivanjeKorisnikaModal.modelVozila,
+            registracija: uredjivanjeKorisnikaModal.registracija,
+            broj_sasije: noviVin,
+            kilometraza: uredjivanjeKorisnikaModal.kilometraza
+          }).eq('id', t.id);
+        }
+      }
+    }
+
+    alert('Korisnik uspešno izmenjen i izmene su automatski propagirane na radne naloge i kalendar!');
+    setUredjivanjeKorisnikaModal(null);
+    ucitajSvePodatke();
   };
 
   const obrisiKorisnikaIzBaze = async (id) => {
@@ -584,6 +649,7 @@ export default function App() {
       vreme_pocetka: trenutniNalog.vremePocetka || '09:00',
       vreme_zavrsetka: trenutniNalog.vremeKraje || '10:30',
       klijent: trenutniNalog.tipKlijenta === 'firma' ? trenutniNalog.nazivFirme : `${trenutniNalog.ime} ${trenutniNalog.prezime}`.trim(),
+      telefon: trenutniNalog.telefon,
       auto: trenutniNalog.modelVozila,
       registracija: trenutniNalog.registracija,
       broj_sasije: trenutniNalog.brojSasije,
@@ -592,7 +658,8 @@ export default function App() {
       cena: ukupnaCenaNaloga,
       zavrseno: false,
       nije_se_pojavio: false,
-      dizalica: trenutniNalog.dizalica || 'Dizalica 1'
+      dizalica: trenutniNalog.dizalica || 'Dizalica 1',
+      stavke: trenutniNalog.stavke
     };
 
     await supabase.from('termini').insert([noviTerminAutomatski]);
@@ -671,14 +738,77 @@ export default function App() {
     vremePocetka: '09:00', 
     vremeZavrsetka: '10:00', 
     klijent: '', 
+    telefon: '',
     auto: '', 
     registracija: '',
     brojSasije: '',
     kilometraza: '',
     opis: '', 
-    cena: '', 
-    dizalica: 'Dizalica 1' 
+    dizalica: 'Dizalica 1',
+    stavke: []
   });
+
+  const [kalendarStavkaPretraga, setKalendarStavkaPretraga] = useState('');
+  const [kalendarOdabraniMagacinArtikal, setKalendarOdabraniMagacinArtikal] = useState(null);
+  const [kalendarStavkaKolicina, setKalendarStavkaKolicina] = useState(1);
+  const [kalendarRucniNaziv, setKalendarRucniNaziv] = useState('');
+  const [kalendarRucniCena, setKalendarRucniCena] = useState('');
+  const [kalendarRucniKolicina, setKalendarRucniKolicina] = useState(1);
+
+  const dodajStavkuUKalendarTermin = () => {
+    if (!kalendarOdabraniMagacinArtikal) return;
+    const art = magacin.find(a => a.id === Number(kalendarOdabraniMagacinArtikal));
+    if (!art || art.kolicina < kalendarStavkaKolicina) {
+      alert('Nema dovoljno artikla na stanju!');
+      return;
+    }
+
+    izmeniArtikalPolje(art.id, 'kolicina', art.kolicina - kalendarStavkaKolicina);
+
+    const novaStavka = {
+      id: Date.now(),
+      tip: 'magacin',
+      magacinId: art.id,
+      sifra: art.sifra,
+      naziv: art.naziv,
+      cena: art.prodajnaCena,
+      kolicina: kalendarStavkaKolicina
+    };
+    setNoviTermin({ ...noviTermin, stavke: [...noviTermin.stavke, novaStavka] });
+    setKalendarOdabraniMagacinArtikal(null);
+    setKalendarStavkaKolicina(1);
+    setKalendarStavkaPretraga('');
+  };
+
+  const dodajRucnuStavkuUKalendarTermin = () => {
+    if (!kalendarRucniNaziv || !kalendarRucniCena) return;
+    const novaStavka = {
+      id: Date.now(),
+      tip: 'rucno',
+      sifra: 'USLUGA',
+      naziv: kalendarRucniNaziv,
+      cena: Number(kalendarRucniCena),
+      kolicina: Number(kalendarRucniKolicina) || 1
+    };
+    setNoviTermin({ ...noviTermin, stavke: [...noviTermin.stavke, novaStavka] });
+    setKalendarRucniNaziv('');
+    setKalendarRucniCena('');
+    setKalendarRucniKolicina(1);
+  };
+
+  const ukloniStavkuIzKalendarTermina = (stavkaId) => {
+    const stavkaZaUklanjanje = noviTermin.stavke.find(s => s.id === stavkaId);
+    if (stavkaZaUklanjanje && stavkaZaUklanjanje.tip === 'magacin') {
+      const art = magacin.find(a => a.id === stavkaZaUklanjanje.magacinId);
+      if (art) {
+        izmeniArtikalPolje(art.id, 'kolicina', art.kolicina + stavkaZaUklanjanje.kolicina);
+      }
+    }
+    setNoviTermin({
+      ...noviTermin,
+      stavke: noviTermin.stavke.filter(s => s.id !== stavkaId)
+    });
+  };
 
   const ucitajTermine = async () => {
     const { data, error } = await supabase.from('termini').select('*');
@@ -694,6 +824,7 @@ export default function App() {
           vremePocetka: t.vreme_pocetka || '09:00',
           vremeZavrsetka: t.vreme_zavrsetka || '10:00',
           klijent: t.klijent,
+          telefon: t.telefon || '',
           auto: t.auto,
           registracija: t.registracija || '',
           brojSasije: t.broj_sasije || '',
@@ -702,7 +833,8 @@ export default function App() {
           cena: t.cena,
           zavrseno: t.zavrseno,
           nije_se_pojavio: t.nije_se_pojavio || false,
-          dizalica: t.dizalica || 'Dizalica 1'
+          dizalica: t.dizalica || 'Dizalica 1',
+          stavke: t.stavke || []
         });
       });
       setZakazanaVozila(grupissani);
@@ -727,7 +859,7 @@ export default function App() {
 
   const otvoriPregledDana = (danStr, dizalicaName = 'Dizalica 1') => {
     setIzabraniDatumZaPregled(danStr);
-    setNoviTermin({ vremePocetka: '09:00', vremeZavrsetka: '10:00', klijent: '', auto: '', registracija: '', brojSasije: '', kilometraza: '', opis: '', cena: '', dizalica: dizalicaName });
+    setNoviTermin({ vremePocetka: '09:00', vremeZavrsetka: '10:00', klijent: '', telefon: '', auto: '', registracija: '', brojSasije: '', kilometraza: '', opis: '', dizalica: dizalicaName, stavke: [] });
     setPrikaziModalDana(true);
   };
 
@@ -735,20 +867,24 @@ export default function App() {
     e.preventDefault();
     if (!noviTermin.klijent || !izabraniDatumZaPregled) return;
 
+    const izracunataCena = noviTermin.stavke.reduce((acc, curr) => acc + (curr.cena * curr.kolicina), 0);
+
     const novi = {
       datum: izabraniDatumZaPregled,
       vreme_pocetka: noviTermin.vremePocetka,
       vreme_zavrsetka: noviTermin.vremeZavrsetka,
       klijent: noviTermin.klijent,
+      telefon: noviTermin.telefon,
       auto: noviTermin.auto,
       registracija: noviTermin.registracija,
       broj_sasije: noviTermin.brojSasije,
       kilometraza: noviTermin.kilometraza,
       opis: noviTermin.opis,
-      cena: Number(noviTermin.cena) || 0,
+      cena: izracunataCena,
       zavrseno: false,
       nije_se_pojavio: false,
-      dizalica: noviTermin.dizalica || 'Dizalica 1'
+      dizalica: noviTermin.dizalica || 'Dizalica 1',
+      stavke: noviTermin.stavke
     };
 
     const { error } = await supabase.from('termini').insert([novi]);
@@ -767,11 +903,12 @@ export default function App() {
 
       if (postojeciKorisnik) {
         const noviOpisZaBazu = postojeciKorisnik.opisRadova 
-          ? `${postojeciKorisnik.opisRadova}\n[${izabraniDatumZaPregled}] ${noviTermin.opis}` 
-          : `[${izabraniDatumZaPregled}] ${noviTermin.opis}`;
+          ? `${postojeciKorisnik.opisRadova}\n[${izabraniDatumZaPregled}] ${noviTermin.opis} (${izracunataCena} RSD)` 
+          : `[${izabraniDatumZaPregled}] ${noviTermin.opis} (${izracunataCena} RSD)`;
 
         await supabase.from('baza_korisnika').update({
           opis_radova: noviOpisZaBazu,
+          telefon: noviTermin.telefon || postojeciKorisnik.telefon,
           kilometraza: noviTermin.kilometraza || postojeciKorisnik.kilometraza
         }).eq('id', postojeciKorisnik.id);
 
@@ -789,7 +926,7 @@ export default function App() {
           broj_sasije: noviTermin.brojSasije,
           registracija: noviTermin.registracija,
           kilometraza: noviTermin.kilometraza,
-          opis_radova: `[${izabraniDatumZaPregled}] ${noviTermin.opis}`
+          opis_radova: `[${izabraniDatumZaPregled}] ${noviTermin.opis} (${izracunataCena} RSD)`
         };
 
         await supabase.from('baza_korisnika').insert([noviKorisnikZapis]);
@@ -798,8 +935,8 @@ export default function App() {
     }
 
     ucitajTermine();
-    alert('Termin uspešno zakazan i sinhronizovan sa bazom korisnika!');
-    setNoviTermin({ vremePocetka: '09:00', vremeZavrsetka: '10:00', klijent: '', auto: '', registracija: '', brojSasije: '', kilometraza: '', opis: '', cena: '', dizalica: noviTermin.dizalica });
+    alert('Termin uspešno zakazan, cena i stavke sačuvane u istoriju klijenta i kalendar!');
+    setNoviTermin({ vremePocetka: '09:00', vremeZavrsetka: '10:00', klijent: '', telefon: '', auto: '', registracija: '', brojSasije: '', kilometraza: '', opis: '', dizalica: noviTermin.dizalica, stavke: [] });
   };
 
   const toggleZavrsenTermin = async (datumStr, terminId) => {
@@ -846,7 +983,7 @@ export default function App() {
     }
 
     let csvContent = "data:text/csv;charset=utf-8,\uFEFF";
-    csvContent += "Datum,Dizalica,Vreme pocetka,Vreme zavrsetka,Klijent,Vozilo,Registracija,Broj sasije,Kilometraza,Opis radova,Cena (RSD),Status\r\n";
+    csvContent += "Datum,Dizalica,Vreme pocetka,Vreme zavrsetka,Klijent,Telefon,Vozilo,Registracija,Broj sasije,Kilometraza,Opis radova,Cena (RSD),Status\r\n";
 
     let ukupnoPazar = 0;
 
@@ -865,6 +1002,7 @@ export default function App() {
         t.vremePocetka,
         t.vremeZavrsetka,
         `"${t.klijent}"`,
+        `"${t.telefon || ''}"`,
         `"${t.auto || ''}"`,
         `"${t.registracija || ''}"`,
         `"${t.brojSasije || ''}"`,
@@ -876,7 +1014,7 @@ export default function App() {
       csvContent += red + "\r\n";
     });
 
-    csvContent += `\r\n,,, , , , , , ,UKUPNO NAPLAĆENO:,${ukupnoPazar} RSD\r\n`;
+    csvContent += `\r\n,,, , , , , , , ,UKUPNO NAPLAĆENO:,${ukupnoPazar} RSD\r\n`;
 
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
@@ -1278,7 +1416,7 @@ export default function App() {
                       <th className="py-3 px-4">Reg. oznaka</th>
                       <th className="py-3 px-4">Kilometraža</th>
                       <th className="py-3 px-4">Broj šasije (VIN)</th>
-                      <th className="py-3 px-4 text-right">Istorija / Akcija</th>
+                      <th className="py-3 px-4 text-right">Akcije</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-700">
@@ -1292,9 +1430,15 @@ export default function App() {
                         <td className="py-3 px-4 text-slate-400 font-mono text-xs">{k.brojSasije || '/'}</td>
                         <td className="py-3 px-4 text-right flex items-center justify-end space-x-2">
                           <button 
+                            onClick={() => setUredjivanjeKorisnikaModal({...k})} 
+                            className="bg-slate-900 hover:bg-amber-600 text-slate-200 hover:text-white px-3 py-1.5 rounded-lg border border-slate-700 text-xs font-semibold transition"
+                          >
+                            <Edit size={14} className="inline mr-1" />
+                            <span>Izmeni</span>
+                          </button>
+                          <button 
                             onClick={() => setIstorijaKorisnikaModal(k)} 
                             className="bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1 border border-blue-500/30 transition"
-                            title="Pregled istorije radova za ovog korisnika"
                           >
                             <History size={14} />
                             <span>Istorija</span>
@@ -1315,6 +1459,111 @@ export default function App() {
               </div>
             </div>
 
+            {/* MODAL ZA IZMENU KORISNIKA */}
+            {uredjivanjeKorisnikaModal && (
+              <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+                <div className="bg-slate-800 border border-slate-700 p-6 rounded-2xl max-w-xl w-full space-y-6 shadow-2xl">
+                  <div className="flex justify-between items-center border-b border-slate-700 pb-4">
+                    <h4 className="font-bold text-lg text-white flex items-center space-x-2">
+                      <Edit className="text-blue-400" />
+                      <span>Izmena podataka o korisniku i vozilu</span>
+                    </h4>
+                    <button onClick={() => setUredjivanjeKorisnikaModal(null)} className="text-slate-400 hover:text-white bg-slate-900 p-2 rounded-xl border border-slate-700">
+                      <X size={18} />
+                    </button>
+                  </div>
+
+                  <form onSubmit={sacuvajIzmenjenogKorisnika} className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-xs text-slate-400 block mb-1">Ime</label>
+                        <input 
+                          type="text"
+                          value={uredjivanjeKorisnikaModal.ime}
+                          onChange={e => setUredjivanjeKorisnikaModal({...uredjivanjeKorisnikaModal, ime: e.target.value})}
+                          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-slate-400 block mb-1">Prezime</label>
+                        <input 
+                          type="text"
+                          value={uredjivanjeKorisnikaModal.prezime}
+                          onChange={e => setUredjivanjeKorisnikaModal({...uredjivanjeKorisnikaModal, prezime: e.target.value})}
+                          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-slate-400 block mb-1">Telefon</label>
+                        <input 
+                          type="text"
+                          value={uredjivanjeKorisnikaModal.telefon}
+                          onChange={e => setUredjivanjeKorisnikaModal({...uredjivanjeKorisnikaModal, telefon: e.target.value})}
+                          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-slate-400 block mb-1">Model vozila</label>
+                        <input 
+                          type="text"
+                          value={uredjivanjeKorisnikaModal.modelVozila}
+                          onChange={e => setUredjivanjeKorisnikaModal({...uredjivanjeKorisnikaModal, modelVozila: e.target.value})}
+                          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-slate-400 block mb-1">Registracija</label>
+                        <input 
+                          type="text"
+                          value={uredjivanjeKorisnikaModal.registracija}
+                          onChange={e => setUredjivanjeKorisnikaModal({...uredjivanjeKorisnikaModal, registracija: e.target.value})}
+                          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono uppercase"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-slate-400 block mb-1">Kilometraža (km)</label>
+                        <input 
+                          type="text"
+                          value={uredjivanjeKorisnikaModal.kilometraza}
+                          onChange={e => setUredjivanjeKorisnikaModal({...uredjivanjeKorisnikaModal, kilometraza: e.target.value})}
+                          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono"
+                        />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <label className="text-xs text-slate-400 block mb-1">Broj šasije (VIN)</label>
+                        <input 
+                          type="text"
+                          value={uredjivanjeKorisnikaModal.brojSasije}
+                          onChange={e => setUredjivanjeKorisnikaModal({...uredjivanjeKorisnikaModal, brojSasije: e.target.value})}
+                          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono uppercase"
+                        />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <label className="text-xs text-slate-400 block mb-1">Opis radova / beleške</label>
+                        <textarea 
+                          rows={3}
+                          value={uredjivanjeKorisnikaModal.opisRadova}
+                          onChange={e => setUredjivanjeKorisnikaModal({...uredjivanjeKorisnikaModal, opisRadova: e.target.value})}
+                          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white resize-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end space-x-3 pt-4 border-t border-slate-700">
+                      <button type="button" onClick={() => setUredjivanjeKorisnikaModal(null)} className="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-xl text-sm font-semibold transition">
+                        Otkaži
+                      </button>
+                      <button type="submit" className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-xl text-sm font-semibold transition shadow">
+                        Sačuvaj izmene
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
             {istorijaKorisnikaModal && (
               <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
                 <div className="bg-slate-800 border border-slate-700 p-6 rounded-2xl max-w-4xl w-full space-y-6 shadow-2xl max-h-[90vh] overflow-y-auto">
@@ -1334,7 +1583,7 @@ export default function App() {
                   <div className="space-y-4">
                     {istorijaKorisnikaModal.opisRadova && (
                       <div className="bg-slate-900 border border-blue-500/30 p-4 rounded-xl space-y-1">
-                        <h5 className="font-bold text-xs text-blue-400 uppercase">Početni opis radova (prilikom unosa u sistem):</h5>
+                        <h5 className="font-bold text-xs text-blue-400 uppercase">Beleške i istorija servisa:</h5>
                         <p className="text-sm text-white whitespace-pre-wrap">{istorijaKorisnikaModal.opisRadova}</p>
                       </div>
                     )}
@@ -1364,14 +1613,6 @@ export default function App() {
                             </div>
                           );
                         })}
-
-                      {radniNalozi.filter(rn => 
-                        (istorijaKorisnikaModal.brojSasije && rn.brojSasije && rn.brojSasije.trim().toLowerCase() === istorijaKorisnikaModal.brojSasije.trim().toLowerCase()) ||
-                        (rn.registracija && istorijaKorisnikaModal.registracija && rn.registracija.trim().toLowerCase() === istorijaKorisnikaModal.registracija.trim().toLowerCase()) ||
-                        (rn.ime && rn.ime.toLowerCase().includes(istorijaKorisnikaModal.ime.toLowerCase()))
-                      ).length === 0 && !istorijaKorisnikaModal.opisRadova && (
-                        <p className="text-sm text-slate-400 text-center py-6">Nema pronađenih radnih naloga za ovog korisnika u arhivi.</p>
-                      )}
                     </div>
                   </div>
 
@@ -1494,7 +1735,6 @@ export default function App() {
               </div>
             ) : (
               <div className="space-y-6">
-                {/* FORMA ZA UNOS NOVOG PROIZVODA U MAGACIN */}
                 <div className="bg-slate-800 border border-slate-700 p-6 rounded-xl shadow-lg space-y-4">
                   <div className="flex justify-between items-center border-b border-slate-700 pb-4">
                     <h3 className="text-lg font-semibold text-white flex items-center space-x-2">
@@ -1558,7 +1798,6 @@ export default function App() {
                   </form>
                 </div>
 
-                {/* PRETRAGA I IZMENA POSTOJEĆIH ARTIKALA */}
                 <div className="bg-slate-800 border border-slate-700 p-6 rounded-xl shadow-lg space-y-4">
                   <div>
                     <h3 className="text-lg font-semibold text-white flex items-center space-x-2">
@@ -2060,7 +2299,7 @@ export default function App() {
                         const ukupnoZaUplatu = osnovnaCena + pdvIznos;
 
                         return (
-                          <div className="flex justify-between items-center pt-4 border-t border-slate-700">
+                          <div className="flex flex-col sm:flex-row justify-between items-center pt-4 border-t border-slate-700 gap-4">
                             <div className="space-y-0.5">
                               <p className="text-xs text-slate-400">
                                 Osnovica: <span className="text-slate-200 font-semibold">{osnovnaCena.toLocaleString()} RSD</span>
@@ -2070,10 +2309,22 @@ export default function App() {
                                 Ukupno za uplatu: <span className="text-emerald-400">{ukupnoZaUplatu.toLocaleString()} RSD</span>
                               </div>
                             </div>
-                            <button onClick={sacuvajRadniNalog} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2.5 rounded-lg font-semibold flex items-center space-x-2 transition shadow">
-                              <Save size={16} />
-                              <span>Sačuvaj nalog, bazu i kalendar</span>
-                            </button>
+                            
+                            <div className="flex items-center space-x-3">
+                              {/* DUGME ZA DIREKTNU ŠTAMPU BEZ ČUVANJA (SADA NA NOVI RADNI NALOG) */}
+                              <button 
+                                onClick={() => setAktivniNalogZaStampu(trenutniNalog)} 
+                                className="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2.5 rounded-lg font-semibold flex items-center space-x-2 transition shadow text-sm"
+                              >
+                                <Printer size={16} />
+                                <span>Štampaj bez čuvanja</span>
+                              </button>
+
+                              <button onClick={sacuvajRadniNalog} className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-2.5 rounded-lg font-semibold flex items-center space-x-2 transition shadow text-sm">
+                                <Save size={16} />
+                                <span>Sačuvaj nalog, bazu i kalendar</span>
+                              </button>
+                            </div>
                           </div>
                         );
                       })()}
@@ -2566,8 +2817,13 @@ export default function App() {
                                         </button>
                                       </div>
                                     </div>
-                                    <div className={`font-semibold ${t.zavrseno ? 'text-emerald-300 line-through' : t.nije_se_pojavio ? 'text-red-300 line-through' : 'text-white'}`}>{t.klijent} - {t.auto}</div>
+                                    <div className={`font-semibold ${t.zavrseno ? 'text-emerald-300 line-through' : t.nije_se_pojavio ? 'text-red-300 line-through' : 'text-white'}`}>{t.klijent} ({t.telefon || 'N/A'}) - {t.auto}</div>
                                     <div className="text-slate-400 font-mono text-[11px]">Reg: {t.registracija || 'N/A'} | Šasija: {t.brojSasije || 'N/A'} | KM: {t.kilometraza || 'N/A'}</div>
+                                    {t.stavke && t.stavke.length > 0 && (
+                                      <div className="text-slate-300 text-[11px] border-t border-slate-800 pt-1">
+                                        Stavke: {t.stavke.map(s => `${s.naziv} (${s.kolicina}x)`).join(', ')}
+                                      </div>
+                                    )}
                                     {t.opis && <div className="text-slate-400">{t.opis}</div>}
                                     {t.cena > 0 && <div className="text-emerald-400 font-semibold">{Number(t.cena).toLocaleString()} RSD</div>}
                                   </div>
@@ -2634,9 +2890,9 @@ export default function App() {
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div>
-                          <label className="text-xs text-slate-400 block mb-1">Klijent *</label>
+                          <label className="text-xs text-slate-400 block mb-1">Klijent (Ime i prezime) *</label>
                           <input
                             type="text"
                             placeholder="Ime i prezime"
@@ -2644,6 +2900,16 @@ export default function App() {
                             onChange={e => setNoviTermin({...noviTermin, klijent: e.target.value})}
                             className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white"
                             required
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-slate-400 block mb-1">Broj telefona klijenta</label>
+                          <input
+                            type="text"
+                            placeholder="06x/xxx-xxxx"
+                            value={noviTermin.telefon}
+                            onChange={e => setNoviTermin({...noviTermin, telefon: e.target.value})}
+                            className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white"
                           />
                         </div>
                         <div>
@@ -2656,6 +2922,9 @@ export default function App() {
                             className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white"
                           />
                         </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div>
                           <label className="text-xs text-slate-400 block mb-1">Registracija</label>
                           <input
@@ -2676,9 +2945,6 @@ export default function App() {
                             className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white uppercase font-mono"
                           />
                         </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                           <label className="text-xs text-slate-400 block mb-1">Kilometraža</label>
                           <input
@@ -2689,30 +2955,106 @@ export default function App() {
                             className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white font-mono"
                           />
                         </div>
-                        <div>
-                          <label className="text-xs text-slate-400 block mb-1">Cena (RSD)</label>
-                          <input
-                            type="number"
-                            placeholder="12000"
-                            value={noviTermin.cena}
-                            onChange={e => setNoviTermin({...noviTermin, cena: e.target.value})}
-                            className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white"
-                          />
+                      </div>
+
+                      {/* DODAVANJE DELOVA I USLUGA NA KALENDARU */}
+                      <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl space-y-3">
+                        <h6 className="font-semibold text-xs text-blue-400 uppercase">Dodavanje delova iz magacina i usluga za ovaj termin</h6>
+                        
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div className="flex space-x-2">
+                            <select 
+                              value={kalendarOdabraniMagacinArtikal || ''} 
+                              onChange={e => setKalendarOdabraniMagacinArtikal(e.target.value)}
+                              className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white flex-1"
+                            >
+                              <option value="">-- Izaberi deo iz magacina --</option>
+                              {magacin.map(art => (
+                                <option key={art.id} value={art.id}>
+                                  {art.naziv} ({art.prodajnaCena} RSD, Stanje: {art.kolicina})
+                                </option>
+                              ))}
+                            </select>
+                            <input 
+                              type="number" 
+                              min="1" 
+                              value={kalendarStavkaKolicina} 
+                              onChange={e => setKalendarStavkaKolicina(Number(e.target.value))}
+                              className="bg-slate-950 border border-slate-800 rounded-lg px-2 py-2 text-xs text-white w-16 text-center"
+                            />
+                            <button type="button" onClick={dodajStavkuUKalendarTermin} className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-lg text-xs font-semibold">
+                              Dodaj
+                            </button>
+                          </div>
+
+                          <div className="flex space-x-2">
+                            <input 
+                              type="text"
+                              placeholder="Naziv usluge"
+                              value={kalendarRucniNaziv}
+                              onChange={e => setKalendarRucniNaziv(e.target.value)}
+                              className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white flex-1"
+                            />
+                            <input 
+                              type="number"
+                              placeholder="Cena"
+                              value={kalendarRucniCena}
+                              onChange={e => setKalendarRucniCena(e.target.value)}
+                              className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white w-24"
+                            />
+                            <button type="button" onClick={dodajRucnuStavkuUKalendarTermin} className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-2 rounded-lg text-xs font-semibold">
+                              Usluga
+                            </button>
+                          </div>
                         </div>
+
+                        {noviTermin.stavke.length > 0 && (
+                          <div className="overflow-x-auto pt-2">
+                            <table className="w-full text-left border-collapse text-xs">
+                              <thead>
+                                <tr className="bg-slate-950 text-slate-400 border-b border-slate-800">
+                                  <th className="py-1.5 px-2">Naziv</th>
+                                  <th className="py-1.5 px-2 w-16 text-center">Količina</th>
+                                  <th className="py-1.5 px-2 w-24 text-right">Cena</th>
+                                  <th className="py-1.5 px-2 w-24 text-right">Ukupno</th>
+                                  <th className="py-1.5 px-2 w-12 text-right">Akcija</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-800">
+                                {noviTermin.stavke.map(s => (
+                                  <tr key={s.id}>
+                                    <td className="py-1.5 px-2 text-white font-medium">{s.naziv}</td>
+                                    <td className="py-1.5 px-2 text-center">{s.kolicina}</td>
+                                    <td className="py-1.5 px-2 text-right">{s.cena} RSD</td>
+                                    <td className="py-1.5 px-2 text-right font-semibold text-blue-400">{s.kolicina * s.cena} RSD</td>
+                                    <td className="py-1.5 px-2 text-right">
+                                      <button type="button" onClick={() => ukloniStavkuIzKalendarTermina(s.id)} className="text-red-400 hover:text-red-300">
+                                        <Trash2 size={14} />
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
                       </div>
 
                       <div>
-                        <label className="text-xs text-slate-400 block mb-1">Opis radova / usluga</label>
+                        <label className="text-xs text-slate-400 block mb-1">Opis radova / napomena</label>
                         <textarea
                           rows={2}
-                          placeholder="Unesite opis radova (automatski se upisuje i u istoriju klijenta)..."
+                          placeholder="Unesite napomenu ili opis radova..."
                           value={noviTermin.opis}
                           onChange={e => setNoviTermin({...noviTermin, opis: e.target.value})}
                           className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white resize-none"
                         />
                       </div>
 
-                      <div className="flex justify-end pt-2">
+                      <div className="flex justify-between items-center pt-2">
+                        <div className="text-base font-bold text-white">
+                          Ukupna cena: <span className="text-emerald-400">{noviTermin.stavke.reduce((acc, curr) => acc + (curr.cena * curr.kolicina), 0).toLocaleString()} RSD</span>
+                        </div>
                         <button type="submit" className="bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold py-2.5 px-6 rounded-xl transition shadow-lg shadow-blue-600/20 flex items-center space-x-2">
                           <Plus size={16} />
                           <span>Zakaži termin i upis u bazu</span>
