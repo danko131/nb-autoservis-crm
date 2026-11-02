@@ -1205,7 +1205,7 @@ export default function App() {
           </form>
 
           <p className="text-[11px] text-slate-500 text-center">
-            Podaci za test: <span className="text-slate-400 font-mono">admin</span> / <span className="text-slate-400 font-mono">admin123</span>
+            Podaci za test: <span className="text-slate-400 font-mono">user</span> / <span className="text-slate-400 font-mono">pass</span>
           </p>
         </div>
       </div>
