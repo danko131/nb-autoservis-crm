@@ -1174,7 +1174,7 @@ export default function App() {
                   type="text" 
                   value={loginForma.username}
                   onChange={e => setLoginForma({...loginForma, username: e.target.value})}
-                  placeholder="admin"
+                  placeholder="user"
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500 transition"
                   required
                 />
