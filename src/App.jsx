@@ -59,6 +59,7 @@ export default function App() {
 
   const [istorijaKorisnikaModal, setIstorijaKorisnikaModal] = useState(null);
   const [uredjivanjeKorisnikaModal, setUredjivanjeKorisnikaModal] = useState(null);
+  const [aktivnaIstorijaZaStampu, setAktivnaIstorijaZaStampu] = useState(null);
 
   const ucitajBazuKorisnika = async () => {
     const { data, error } = await supabase.from('baza_korisnika').select('*').order('id', { ascending: false });
@@ -119,7 +120,6 @@ export default function App() {
     }
   };
 
-  // PROPAGACIJA IZMENA KORISNIKA NA OSTALE TABELE (RADNE NALOGE I TERMINE)
   const sacuvajIzmenjenogKorisnika = async (e) => {
     e.preventDefault();
     if (!uredjivanjeKorisnikaModal) return;
@@ -127,7 +127,6 @@ export default function App() {
     const stariVin = (bazaKorisnika.find(k => k.id === uredjivanjeKorisnikaModal.id)?.brojSasije || '').trim().toLowerCase();
     const noviVin = (uredjivanjeKorisnikaModal.brojSasije || '').trim();
 
-    // 1. Ažuriranje u bazi korisnika
     const { error } = await supabase.from('baza_korisnika').update({
       ime: uredjivanjeKorisnikaModal.ime,
       prezime: uredjivanjeKorisnikaModal.prezime,
@@ -145,7 +144,6 @@ export default function App() {
       return;
     }
 
-    // 2. Automatska propagacija na radne naloge (po starom VIN-u ili ID-ju)
     for (const rn of radniNalozi) {
       if ((rn.brojSasije && rn.brojSasije.trim().toLowerCase() === stariVin) || (stariVin === '' && rn.ime === uredjivanjeKorisnikaModal.ime)) {
         await supabase.from('radni_nalozi').update({
@@ -160,7 +158,6 @@ export default function App() {
       }
     }
 
-    // 3. Automatska propagacija na termine u kalendaru
     for (const datumStr of Object.keys(zakazanaVozila)) {
       const listaTermina = zakazanaVozila[datumStr];
       for (const t of listaTermina) {
@@ -487,7 +484,7 @@ export default function App() {
     const novaStavka = {
       id: Date.now(),
       tip: 'rucno',
-      sifra: 'USLUGA',
+      sifra: '',
       naziv: ručniNaziv,
       cena: Number(ručniCena),
       kolicina: Number(ručniKolicina) || 1
@@ -545,7 +542,7 @@ export default function App() {
     const novaStavka = {
       id: Date.now(),
       tip: 'rucno',
-      sifra: 'USLUGA',
+      sifra: '',
       naziv: editRucniNaziv,
       cena: Number(editRucniCena),
       kolicina: Number(editRucniKolicina) || 1
@@ -785,7 +782,7 @@ export default function App() {
     const novaStavka = {
       id: Date.now(),
       tip: 'rucno',
-      sifra: 'USLUGA',
+      sifra: '',
       naziv: kalendarRucniNaziv,
       cena: Number(kalendarRucniCena),
       kolicina: Number(kalendarRucniKolicina) || 1
@@ -1125,7 +1122,7 @@ export default function App() {
       maticniBroj: pr.maticniBroj,
       adresaFirme: pr.adresa,
       modelVozila: pr.modelVozila,
-      stavke: pr.stavke.map(s => ({ ...s, tip: 'rucno', sifra: 'PRED' }))
+      stavke: pr.stavke.map(s => ({ ...s, tip: 'rucno', sifra: '' }))
     });
     setActiveTab('radni-nalog');
     setPodTabNalog('novi');
@@ -1214,7 +1211,17 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans">
-      <header className="bg-slate-950 border-b border-slate-800 px-6 py-4 flex items-center justify-between shadow-md">
+      <style>{`
+        @media print {
+          @page { margin: 10mm; size: auto; }
+          body { -webkit-print-color-adjust: exact; background: white !important; color: black !important; }
+          body * { visibility: hidden !important; }
+          .print\\:block, .print\\:block * { visibility: visible !important; }
+          .print\\:block { position: fixed !important; left: 0 !important; top: 0 !important; width: 100% !important; height: 100% !important; background: white !important; z-index: 99999 !important; overflow: visible !important; }
+        }
+      `}</style>
+
+      <header className="bg-slate-950 border-b border-slate-800 px-6 py-4 flex items-center justify-between shadow-md print:hidden">
         <div className="flex items-center space-x-3">
           <div className="bg-blue-600 p-2 rounded-xl text-white font-black tracking-wider shadow-lg shadow-blue-600/30">
             NB
@@ -1282,7 +1289,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="flex-1 p-6 max-w-7xl mx-auto w-full">
+      <main className="flex-1 p-6 max-w-7xl mx-auto w-full print:hidden">
         
         {/* BAZA KORISNIKA MODUL */}
         {activeTab === 'baza-korisnika' && (
@@ -1575,9 +1582,18 @@ export default function App() {
                       </h4>
                       <p className="text-xs text-slate-400 mt-1">Vozilo: <strong className="text-blue-400">{istorijaKorisnikaModal.modelVozila}</strong> | Šasija: {istorijaKorisnikaModal.brojSasije || 'N/A'} | Reg: {istorijaKorisnikaModal.registracija || 'N/A'}</p>
                     </div>
-                    <button onClick={() => setIstorijaKorisnikaModal(null)} className="text-slate-400 hover:text-white bg-slate-900 p-2 rounded-xl border border-slate-700">
-                      <X size={18} />
-                    </button>
+                    <div className="flex items-center space-x-2">
+                      <button 
+                        onClick={() => setAktivnaIstorijaZaStampu(istorijaKorisnikaModal)} 
+                        className="bg-slate-700 hover:bg-slate-600 text-white px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition shadow"
+                      >
+                        <Printer size={15} />
+                        <span>Štampaj istoriju</span>
+                      </button>
+                      <button onClick={() => setIstorijaKorisnikaModal(null)} className="text-slate-400 hover:text-white bg-slate-900 p-2 rounded-xl border border-slate-700">
+                        <X size={18} />
+                      </button>
+                    </div>
                   </div>
 
                   <div className="space-y-4">
@@ -1620,6 +1636,98 @@ export default function App() {
                     <button onClick={() => setIstorijaKorisnikaModal(null)} className="bg-slate-700 hover:bg-slate-600 text-white px-5 py-2 rounded-xl text-sm font-semibold transition">
                       Zatvori
                     </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* MODAL ZA ŠTAMPU ISTORIJE KORISNIKA (BEZ POTPISA) */}
+            {aktivnaIstorijaZaStampu && (
+              <div className="fixed inset-0 bg-black/85 flex items-center justify-center z-50 p-2 sm:p-6 overflow-y-auto print:p-0 print:bg-white print:fixed print:inset-0 print:block">
+                <div className="bg-white text-slate-900 rounded-2xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl relative print:shadow-none print:max-w-none print:w-full print:h-auto overflow-hidden">
+                  <div className="sticky top-0 bg-slate-900 text-white p-4 px-6 flex justify-between items-center z-10 print:hidden border-b border-slate-800">
+                    <div className="flex items-center space-x-3">
+                      <Printer className="text-blue-400" size={20} />
+                      <h4 className="font-bold text-base text-white">Štampa istorije korisnika</h4>
+                    </div>
+                    <div className="flex items-center space-x-3">
+                      <button onClick={() => window.print()} className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-2 rounded-xl text-sm font-semibold flex items-center space-x-2 transition shadow">
+                        <Printer size={16} />
+                        <span>Štampaj / Sačuvaj PDF</span>
+                      </button>
+                      <button onClick={() => setAktivnaIstorijaZaStampu(null)} className="text-slate-400 hover:text-white p-2">
+                        <X size={20} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="p-8 sm:p-10 overflow-y-auto flex-1 space-y-6 bg-white print:m-0 print:p-4">
+                    <div className="flex justify-between items-start border-b-2 border-blue-900 pb-6">
+                      <div>
+                        <h2 className="text-3xl font-black tracking-tight text-blue-900">NB AUTO SERVIS</h2>
+                        <p className="text-xs text-slate-600 mt-1">Sremčica, Beograd | Tel: +381 60 0716698</p>
+                        <div className="text-xs text-slate-600 mt-1 space-y-0.5">
+                          <p className="font-semibold text-slate-700">DOO NOVKOVIĆ Prijepolje</p>
+                          <p>PIB: 110840452 | Matični broj: 21392642</p>
+                          <p>Adresa: Novovaroška BB, Prijepolje</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <h3 className="text-2xl font-bold text-slate-800">ISTORIJA KLIJENTA</h3>
+                        <p className="text-xs text-slate-500 mt-1">Datum štampe: {new Date().toISOString().split('T')[0]}</p>
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-50 p-5 rounded-xl border border-slate-200 text-sm space-y-2">
+                      <p className="font-bold uppercase tracking-wide text-xs text-blue-900 mb-2">Podaci o klijentu i vozilu:</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <p><span className="font-semibold text-slate-600">Ime i prezime:</span> <span className="text-slate-900 font-bold">{aktivnaIstorijaZaStampu.ime} {aktivnaIstorijaZaStampu.prezime}</span></p>
+                        <p><span className="font-semibold text-slate-600">Telefon:</span> <span className="text-slate-900">{aktivnaIstorijaZaStampu.telefon || '/'}</span></p>
+                        <p><span className="font-semibold text-slate-600">Model vozila:</span> <span className="text-slate-900 font-bold text-blue-800">{aktivnaIstorijaZaStampu.modelVozila || '/'}</span></p>
+                        <p><span className="font-semibold text-slate-600">Registarska oznaka:</span> <span className="text-slate-900 font-mono">{aktivnaIstorijaZaStampu.registracija || '/'}</span></p>
+                        <p><span className="font-semibold text-slate-600">Kilometraža:</span> <span className="text-slate-900 font-mono">{aktivnaIstorijaZaStampu.kilometraza ? `${aktivnaIstorijaZaStampu.kilometraza} km` : '/'}</span></p>
+                        <p><span className="font-semibold text-slate-600">Broj šasije (VIN):</span> <span className="text-slate-900 font-mono">{aktivnaIstorijaZaStampu.brojSasije || '/'}</span></p>
+                      </div>
+                    </div>
+
+                    {aktivnaIstorijaZaStampu.opisRadova && (
+                      <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-sm space-y-1">
+                        <p className="font-bold uppercase tracking-wide text-xs text-blue-900 mb-1">Beleške i evidencija servisa:</p>
+                        <p className="text-slate-800 whitespace-pre-wrap leading-relaxed">{aktivnaIstorijaZaStampu.opisRadova}</p>
+                      </div>
+                    )}
+
+                    <div className="space-y-3 pt-2">
+                      <h4 className="font-bold text-sm uppercase text-blue-900">Povezani radni nalozi iz arhive:</h4>
+                      <div className="space-y-4">
+                        {radniNalozi
+                          .filter(rn => 
+                            (aktivnaIstorijaZaStampu.brojSasije && rn.brojSasije && rn.brojSasije.trim().toLowerCase() === aktivnaIstorijaZaStampu.brojSasije.trim().toLowerCase()) ||
+                            (rn.registracija && aktivnaIstorijaZaStampu.registracija && rn.registracija.trim().toLowerCase() === aktivnaIstorijaZaStampu.registracija.trim().toLowerCase()) ||
+                            (rn.ime && rn.ime.toLowerCase().includes(aktivnaIstorijaZaStampu.ime.toLowerCase()))
+                          )
+                          .map(rn => {
+                            const osnovnaC = (rn.stavke || []).reduce((acc, curr) => acc + (curr.cena * curr.kolicina), 0);
+                            const ukupnoC = rn.include_vat !== false ? osnovnaC * 1.20 : osnovnaC;
+                            return (
+                              <div key={rn.id} className="bg-slate-50 border border-slate-200 p-4 rounded-xl space-y-2 text-sm">
+                                <div className="flex justify-between items-center border-b border-slate-200 pb-2">
+                                  <span className="font-bold text-blue-900">{rn.broj} (Datum: {rn.datum})</span>
+                                  <span className="text-emerald-700 font-bold">{ukupnoC.toLocaleString()} RSD</span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2 text-xs">
+                                  <p><span className="font-semibold text-slate-600">Kilometraža:</span> <span className="font-mono text-slate-900">{rn.kilometraza ? `${rn.kilometraza} km` : 'N/A'}</span></p>
+                                  <p><span className="font-semibold text-slate-600">Reg:</span> <span className="font-mono text-slate-900">{rn.registracija || 'N/A'}</span></p>
+                                </div>
+                                {rn.work_description && <p className="text-xs text-slate-700">Opis radova: {rn.work_description}</p>}
+                                <div className="text-xs text-slate-600 pt-1 border-t border-slate-200">
+                                  <strong className="text-slate-700">Stavke:</strong> {(rn.stavke || []).map(s => `${s.naziv} (${s.kolicina}x)`).join(', ')}
+                                </div>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -2277,7 +2385,7 @@ export default function App() {
                           <tbody className="divide-y divide-slate-700 text-sm">
                             {trenutniNalog.stavke.map(s => (
                               <tr key={s.id} className="hover:bg-slate-750">
-                                <td className="py-2 px-3 text-slate-400 text-xs">{s.sifra}</td>
+                                <td className="py-2 px-3 text-slate-400 text-xs">{s.sifra || '/'}</td>
                                 <td className="py-2 px-3 font-medium text-white">{s.naziv}</td>
                                 <td className="py-2 px-3">{s.kolicina}</td>
                                 <td className="py-2 px-3">{s.cena} RSD</td>
@@ -2311,7 +2419,6 @@ export default function App() {
                             </div>
                             
                             <div className="flex items-center space-x-3">
-                              {/* DUGME ZA DIREKTNU ŠTAMPU BEZ ČUVANJA (SADA NA NOVI RADNI NALOG) */}
                               <button 
                                 onClick={() => setAktivniNalogZaStampu(trenutniNalog)} 
                                 className="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2.5 rounded-lg font-semibold flex items-center space-x-2 transition shadow text-sm"
@@ -3221,7 +3328,7 @@ export default function App() {
         const jeFirma = aktivniNalogZaStampu.tipKlijenta === 'firma';
 
         return (
-          <div className="fixed inset-0 bg-black/85 flex items-center justify-center z-50 p-2 sm:p-6 overflow-y-auto print:p-0 print:bg-white">
+          <div className="fixed inset-0 bg-black/85 flex items-center justify-center z-50 p-2 sm:p-6 overflow-y-auto print:p-0 print:bg-white print:fixed print:inset-0 print:block">
             <div className="bg-white text-slate-900 rounded-2xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl relative print:shadow-none print:max-w-none print:w-full print:h-auto overflow-hidden">
               <div className="sticky top-0 bg-slate-900 text-white p-4 px-6 flex justify-between items-center z-10 print:hidden border-b border-slate-800">
                 <div className="flex items-center space-x-3">
@@ -3239,11 +3346,16 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="p-8 sm:p-10 overflow-y-auto flex-1 space-y-6 bg-white">
+              <div className="p-8 sm:p-10 overflow-y-auto flex-1 space-y-6 bg-white print:m-0 print:p-4">
                 <div className="flex justify-between items-start border-b-2 border-blue-900 pb-6">
                   <div>
                     <h2 className="text-3xl font-black tracking-tight text-blue-900">NB AUTO SERVIS</h2>
                     <p className="text-xs text-slate-600 mt-1">Sremčica, Beograd | Tel: +381 60 0716698</p>
+                    <div className="text-xs text-slate-600 mt-1 space-y-0.5">
+                      <p className="font-semibold text-slate-700">DOO NOVKOVIĆ Prijepolje</p>
+                      <p>PIB: 110840452 | Matični broj: 21392642</p>
+                      <p>Adresa: Novovaroška BB, Prijepolje</p>
+                    </div>
                   </div>
                   <div className="text-right">
                     <h3 className="text-2xl font-bold text-slate-800">RADNI NALOG</h3>
@@ -3290,7 +3402,7 @@ export default function App() {
                     {(aktivniNalogZaStampu.stavke || []).map((s, index) => (
                       <tr key={s.id || index} className="hover:bg-slate-50">
                         <td className="py-3 px-3 text-slate-500">{index + 1}</td>
-                        <td className="py-3 px-3 font-mono text-xs text-blue-800 font-semibold">{s.sifra || 'USLUGA'}</td>
+                        <td className="py-3 px-3 font-mono text-xs text-blue-800 font-semibold">{s.sifra || ''}</td>
                         <td className="py-3 px-3 font-medium text-slate-900">{s.naziv}</td>
                         <td className="py-3 px-3 text-center">{s.kolicina}</td>
                         {!sakrijCeneNaStampi && (
@@ -3331,6 +3443,17 @@ export default function App() {
                     </div>
                   </div>
                 )}
+
+                <div className="flex justify-between items-end pt-16 mt-12 border-t border-slate-300 text-sm">
+                  <div className="text-center space-y-12">
+                    <div className="w-48 border-b border-slate-400"></div>
+                    <p className="font-semibold text-slate-700">Potpis klijenta</p>
+                  </div>
+                  <div className="text-center space-y-12">
+                    <div className="w-48 border-b border-slate-400"></div>
+                    <p className="font-semibold text-slate-700">Potpis ovlašćenog lica / Pečat</p>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
