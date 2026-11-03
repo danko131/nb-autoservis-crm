@@ -1217,7 +1217,7 @@ export default function App() {
           body { -webkit-print-color-adjust: exact; background: white !important; color: black !important; }
           body * { visibility: hidden !important; }
           .print\\:block, .print\\:block * { visibility: visible !important; }
-          .print\\:block { position: fixed !important; left: 0 !important; top: 0 !important; width: 100% !important; height: 100% !important; background: white !important; z-index: 99999 !important; overflow: visible !important; }
+          .print\\:block { position: absolute !important; left: 0 !important; top: 0 !important; width: 100% !important; height: auto !important; background: white !important; z-index: 99999 !important; overflow: visible !important; }
         }
       `}</style>
 
@@ -3328,8 +3328,8 @@ export default function App() {
         const jeFirma = aktivniNalogZaStampu.tipKlijenta === 'firma';
 
         return (
-          <div className="fixed inset-0 bg-black/85 flex items-center justify-center z-50 p-2 sm:p-6 overflow-y-auto print:p-0 print:bg-white print:fixed print:inset-0 print:block">
-            <div className="bg-white text-slate-900 rounded-2xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl relative print:shadow-none print:max-w-none print:w-full print:h-auto overflow-hidden">
+          <div className="fixed inset-0 bg-black/85 flex items-center justify-center z-50 p-2 sm:p-6 overflow-y-auto print:p-0 print:bg-white print:absolute print:inset-auto print:block">
+            <div className="bg-white text-slate-900 rounded-2xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl relative print:shadow-none print:max-w-none print:w-full print:h-auto print:max-h-none print:overflow-visible overflow-hidden">
               <div className="sticky top-0 bg-slate-900 text-white p-4 px-6 flex justify-between items-center z-10 print:hidden border-b border-slate-800">
                 <div className="flex items-center space-x-3">
                   <Printer className="text-blue-400" size={20} />
@@ -3346,7 +3346,7 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="p-8 sm:p-10 overflow-y-auto flex-1 space-y-6 bg-white print:m-0 print:p-4">
+              <div className="p-8 sm:p-10 overflow-y-auto flex-1 space-y-6 bg-white print:m-0 print:p-4 print:overflow-visible">
                 <div className="flex justify-between items-start border-b-2 border-blue-900 pb-6">
                   <div>
                     <h2 className="text-3xl font-black tracking-tight text-blue-900">NB AUTO SERVIS</h2>
